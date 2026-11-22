@@ -85,7 +85,7 @@
   function scaleAmount(value,target,base){if(base<=0)return value;const range=String(value||'').match(/^\s*(\d+(?:[,.]\d+)?)\s*([-–—])\s*(\d+(?:[,.]\d+)?)(.*)$/);const factor=target/base;const fmt=n=>String(Math.round(n*factor*100)/100).replace('.',',');if(range)return `${fmt(Number(range[1].replace(',','.')))}${range[2]}${fmt(Number(range[3].replace(',','.')))}${range[4]}`;const parsed=readQuantity(value);if(!parsed||!Number.isFinite(parsed.value))return value;return `${fmt(parsed.value)}${parsed.tail}`}
   function parseRecipeText(value){
     let raw=String(value||'').replace(/\r/g,'\n');
-    raw=raw.replace(/\b(?:lista\s+)?składniki\s*:?/giu,'\nSkładniki\n').replace(/\b(?:sposób\s+przygotowania|przygotowanie|wykonanie|instrukcja)\s*:?/giu,'\nPrzygotowanie\n');
+    raw=raw.replace(/\b(?:lista\s+)?składniki\s*:/giu,'\nSkładniki\n').replace(/\b(?:sposób\s+przygotowania|przygotowanie|wykonanie|instrukcja)\s*:/giu,'\nPrzygotowanie\n');
     raw=raw.replace(/([^,\n])\s+(?=\d+(?:[,.]\d+)?\s*(?:g|kg|mg|ml|l|dag|łyżec?(?:zka|zki|zek)|łyż(?:ka|ki|ek)|szkl(?:anka|anki|anek)|szt\.?|opak\.?|ząbk(?:i|ów))\.?\s+)/giu,'$1\n');
     const lines=raw.split(/\n+/).map(s=>s.replace(/^\s*[-•*·▪]+\s*/,'').trim().replace(/^[|/\\:;,. ]+|[| ]+$/g,'')).filter(s=>s&&!/^[\W_]{1,5}$/u.test(s)&&!/\b\d+\s*(?:tyg|tygodni|dni|godz)\b/iu.test(s));
     const deaccent=s=>s.normalize('NFD').replace(/\p{Diacritic}/gu,'').toLocaleLowerCase('pl').replace(/[:.]+$/,'').trim();
