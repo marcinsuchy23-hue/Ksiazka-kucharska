@@ -51,11 +51,15 @@
     .prep-list th[scope=col] {color:var(--muted);font-size:13px}
     .prep-list button {text-align:left}
     .prep-table-scroll {overflow-x:auto}
-    .prep-index-table {min-width:420px}
-    .prep-index-table td {vertical-align:top;white-space:pre-wrap}
-    .prep-index-table th:first-child {min-width:100px}
+    .prep-index-table {min-width:490px}
+    .prep-index-table th,.prep-index-table td {overflow-wrap:normal;word-break:normal;vertical-align:top}
+    .prep-index-table td {white-space:pre-wrap}
+    .prep-index-table th:first-child {min-width:118px}
+    .prep-index-table td:nth-child(2) {white-space:nowrap}
+    .prep-index-table th:last-child {min-width:110px}
     .prep-row-edit {display:block;font-size:13px;padding:6px 0}
-    .prep-index-table th:nth-child(2),.prep-index-table th:nth-child(3) {min-width:65px}
+    .prep-index-table th:nth-child(2) {min-width:95px}
+    .prep-index-table th:nth-child(3) {min-width:70px}
     .prep-numbers {display:flex;gap:18px;flex-wrap:wrap}
     .prep-numbers strong {display:block;margin-top:5px;color:var(--green);font-size:25px}
     .baking-settings {flex-basis:100%}
