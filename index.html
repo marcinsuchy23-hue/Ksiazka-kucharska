@@ -213,7 +213,7 @@
     main.innerHTML=`${crumb([{label:'Moja kuchnia',route:'home'}, {label:b.name}])}<section class="page-head"><div><div class="eyebrow">Książka kucharska</div><h1 class="heading">${esc(b.name)}</h1><p class="subheading">Wybierz dział albo dodaj nowy.</p></div><div class="top-actions"><button class="quiet-button" data-action="edit-book:${b.id}">Edytuj</button><button class="primary-button" data-action="new-category:${b.id}">＋ Dodaj dział</button></div></section>${b.categories.length?`<div class="grid">${b.categories.map((c,i)=>`<div class="tile-edit-wrap">${card(c.name,`${c.recipes.length} ${plural(c.recipes.length,'przepis','przepisy','przepisów')}`,icons[(i+1)%icons.length],colors[(i+2)%colors.length],`category:${b.id}:${c.id}`,'',c.photo||'',{size:c.tileTitleSize,weight:c.tileTitleWeight})}<button type="button" class="text-button tile-edit-link" data-action="edit-category:${b.id}:${c.id}">Edytuj dział i zdjęcie</button></div>`).join('')}</div>`:empty('Dodaj pierwszy dział','Działy pomagają uporządkować przepisy, na przykład na „Sosy”, „Zupy” albo „Ciasta”.','＋ Dodaj dział',`new-category:${b.id}`)}`;
   }
   function renderCategory(){const b=bookBy(route.book),c=catBy(b,route.category);if(!b||!c){route={type:'home'};return renderHome()};
-    main.innerHTML=`${crumb([{label:'Moja kuchnia',route:'home'},{label:b.name,route:`book:${b.id}`},{label:c.name}])}<section class="page-head"><div><div class="eyebrow">Dział w książce „${esc(b.name)}”</div><h1 class="heading">${esc(c.name)}</h1><p class="subheading">Twoje sprawdzone przepisy, zawsze pod ręką.</p></div><div class="top-actions"><button class="quiet-button" data-action="edit-category:${b.id}:${c.id}">Edytuj dział</button><button class="quiet-button" data-action="scan-photo:${b.id}:${c.id}">▧ Ze zdjęcia</button><button class="primary-button" data-action="new-recipe:${b.id}:${c.id}">＋ Dodaj przepis</button></div></section><input id="recipe-photo" class="hidden" type="file" accept="image/*">${c.recipes.length?`<div class="toolbar"><input id="recipe-search" class="search" type="search" placeholder="⌕  Szukaj przepisu…" value="${esc(search)}"></div><div id="recipe-search-results"></div>`:empty('Ten dział czeka na przepisy','Dodaj pierwszy przepis ze zdjęcia albo wpisz go ręcznie.','＋ Dodaj przepis',`new-recipe:${b.id}:${c.id}`)}`;
+    main.innerHTML=`${crumb([{label:'Moja kuchnia',route:'home'},{label:b.name,route:`book:${b.id}`},{label:c.name}])}<section class="page-head"><div><div class="eyebrow">Dział w książce „${esc(b.name)}”</div><h1 class="heading">${esc(c.name)}</h1><p class="subheading">Twoje sprawdzone przepisy, zawsze pod ręką.</p></div><div class="top-actions"><button class="quiet-button" data-action="edit-category:${b.id}:${c.id}">Edytuj dział</button><button class="quiet-button" data-action="scan-photo:${b.id}:${c.id}">▧ Ze zdjęcia</button><button type="button" class="quiet-button" data-action="dictate-recipe:${b.id}:${c.id}">Podyktuj przepis</button><button class="primary-button" data-action="new-recipe:${b.id}:${c.id}">＋ Dodaj przepis</button></div></section><input id="recipe-photo" class="hidden" type="file" accept="image/*">${c.recipes.length?`<div class="toolbar"><input id="recipe-search" class="search" type="search" placeholder="⌕  Szukaj przepisu…" value="${esc(search)}"></div><div id="recipe-search-results"></div>`:empty('Ten dział czeka na przepisy','Dodaj pierwszy przepis ze zdjęcia albo wpisz go ręcznie.','＋ Dodaj przepis',`new-recipe:${b.id}:${c.id}`)}`;
     const input = main.querySelector('#recipe-search');
     if (input) {
       const results = main.querySelector('#recipe-search-results');
@@ -1118,6 +1118,41 @@
       ...(index>0&&section.querySelector('[data-baker-continue]').checked?{continuesPreviousStage:true}:{})
     };
   }
+  function parseDictatedRecipe(text) {
+    const source = text.trim().replace(/\bnowy wiersz\b/giu,'\n');
+    const ingredientsHeading = /(?:^|[\s.!?:;,])(?:lista składników|składniki)(?=[\s:.,;]|$)\s*[:.,;]?\s*/iu.exec(source);
+    if (!ingredientsHeading) return null;
+    const remainder = source.slice(ingredientsHeading.index+ingredientsHeading[0].length);
+    const methodHeading = /(?:^|[\s.!?:;,])(?:sposób przygotowania|przygotowanie|wykonanie)(?=[\s:.,;]|$)\s*[:.,;]?\s*/iu.exec(remainder);
+    if (!methodHeading) return null;
+    const name = source.slice(0,ingredientsHeading.index).replace(/^tytuł(?: przepisu)?[\s:.,;]+/iu,'')
+      .replace(/[\s:.,;]+$/u,'').slice(0,90).trim();
+    const ingredients = parseDictatedIngredients(remainder.slice(0,methodHeading.index).replace(/\bprzecinek\b/giu,','));
+    const instructions = remainder.slice(methodHeading.index+methodHeading[0].length).trim();
+    if (!name || !ingredients.length || !instructions) return null;
+    return {name,servings:1,sections:[{name:'Przygotowanie',ingredients,instructions}]};
+  }
+
+  function dictateRecipe(book,category) {
+    showForm('Podyktuj przepis',`<form id="edit-form" class="form">
+      <div class="field"><label for="dictated-recipe">Tekst przepisu</label>
+        <textarea id="dictated-recipe" name="text" rows="7" required
+          placeholder="Zupa pomidorowa. Składniki: 500 g pomidorów, 250 ml bulionu. Przygotowanie: Gotuj 20 minut."></textarea></div>
+      <p class="scan-help">Stuknij mikrofon na klawiaturze. Powiedz nazwę przepisu, potem „składniki”, listę składników, a na końcu „przygotowanie” i instrukcję.</p>
+      <p class="scan-help" id="dictated-recipe-message" role="status" hidden></p>
+      <div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button>
+        <button type="submit" class="primary-button">Sprawdź szkic</button></div></form>`,(data,form)=>{
+      const draft = parseDictatedRecipe(String(data.get('text')));
+      if (!draft) {
+        const message = form.querySelector('#dictated-recipe-message');
+        message.textContent = 'Podaj nazwę i dodaj nagłówki „Składniki” oraz „Przygotowanie”, z tekstem pod każdym z nich.';
+        message.hidden = false;
+        return;
+      }
+      recipeForm(book,category,draft,true);
+    });
+  }
+
   function parseDictatedIngredients(text) {
     const units = [
       ['mg','mg|miligram(?:a|y|ów)?'], ['g','g|gram(?:a|y|ów)?'],
@@ -1217,6 +1252,11 @@
       if (entry) return prepForm(entry,category);
     }
     if(act==='new-recipe')return recipeForm(bookBy(p[0]),catBy(bookBy(p[0]),p[1]));
+    if (act==='dictate-recipe') {
+      const book = bookBy(p[0]);
+      const category = catBy(book,p[1]);
+      if (category) return dictateRecipe(book,category);
+    }
     if(act==='scan-photo')return document.querySelector('#recipe-photo').click();
     if(act==='edit-recipe')return recipeForm(bookBy(p[0]),catBy(bookBy(p[0]),p[1]),recipeBy(bookBy(p[0]),catBy(bookBy(p[0]),p[1]),p[2]));
     if (act==='journal-recipe' || act==='cook-recipe') {
