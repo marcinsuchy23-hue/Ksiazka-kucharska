@@ -179,8 +179,6 @@ function dodajDoTabeli() {
   } finally { lock.releaseLock(); }
 }
 
-const ORIGIN_APLIKACJI = 'https://marcinsuchy23-hue.github.io';
-
 function utworzKluczSynchronizacji() {
   if (!SpreadsheetApp.getActiveSpreadsheet()) throw Error('Otwórz menu w arkuszu.');
   const ui = SpreadsheetApp.getUi();
@@ -206,32 +204,22 @@ function sprawdzKlucz_(key) {
   if (difference) throw Error('Nieprawidłowy klucz synchronizacji.');
 }
 
-function doGet(e) {
-  const session = String(e.parameter.session || '');
-  if (!/^[a-f0-9-]{36}$/.test(session)) return HtmlService.createHtmlOutput('Synchronizację uruchom w aplikacji Moja kuchnia.');
-  return HtmlService.createHtmlOutput(`<!doctype html><meta charset="utf-8"><script>
-    const origin = ${JSON.stringify(ORIGIN_APLIKACJI)};
-    const session = ${JSON.stringify(session)};
-    let running = false;
-    function send(type,payload) { window.top.postMessage({type,session,payload},origin); }
-    window.addEventListener('message',event => {
-      if (event.source !== window.top || event.origin !== origin ||
-          event.data?.type !== 'kuchnia-request-v2' || event.data.session !== session || running) return;
-      running = true;
-      const {request,key,policy} = event.data;
-      google.script.run.withSuccessHandler(result => {
-        running = false;
-        send('kuchnia-result-v2',result);
-      }).withFailureHandler(error => {
-        running = false;
-        send('kuchnia-error-v2',error.message);
-      }).synchronizujPrzepisy(request,policy,key);
-    });
-    send('kuchnia-ready-v2');
-  </script>`).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL).setTitle('Moja kuchnia');
+function doGet() {
+  return ContentService.createTextOutput('Synchronizację uruchom w aplikacji Moja kuchnia. Połączenie bezpośrednie v3.');
 }
 
-function synchronizujPrzepisy(request, policy, key) {
+function doPost(event) {
+  let result;
+  try {
+    const {request, policy, key} = JSON.parse(event.postData.contents);
+    result = synchronizujPrzepisy_(request,policy,key);
+  } catch (error) {
+    result = {error:error.message || 'Synchronizacja nie powiodła się.'};
+  }
+  return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function synchronizujPrzepisy_(request, policy, key) {
   sprawdzKlucz_(key);
   if (request?.format !== 'moja-kuchnia-sync-1' || !/^[a-f0-9-]{36}$/.test(request.session) ||
       !Array.isArray(request.recipes) || !request.baseline || typeof request.baseline !== 'object')

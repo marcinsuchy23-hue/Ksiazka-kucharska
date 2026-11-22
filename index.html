@@ -253,49 +253,30 @@
     });
   }
 
-  function runSync(url, request, key, policy) {
-    return new Promise((resolve,reject) => {
-      const frame = document.createElement('iframe');
-      frame.hidden = true;
-      frame.title = 'Połączenie z Arkuszem Google';
-      frame.referrerPolicy = 'no-referrer';
-      frame.src = url + '?session=' + encodeURIComponent(request.session);
-      let source, origin;
-      const timer = setTimeout(() => finish(Error('Google nie odpowiedział. Sprawdź internet i wersję wdrożenia Apps Script.')),90000);
-
-      function finish(error,result) {
-        clearTimeout(timer);
-        window.removeEventListener('message',receive);
-        frame.remove();
-        if (error) reject(error);
-        else resolve(result);
+  async function runSync(url, request, key, policy) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(),45000);
+    try {
+      const response = await fetch(url,{
+        method:'POST',
+        credentials:'omit',
+        body:JSON.stringify({request,key,policy}),
+        signal:controller.signal
+      });
+      if (!response.ok) throw Error('Apps Script zwrócił błąd HTTP ' + response.status + '.');
+      if (!response.headers.get('content-type')?.includes('application/json')) {
+        throw Error('Adres /exec nie zwrócił danych synchronizacji. Wdróż nową wersję skryptu z dostępem „Każdy”.');
       }
-
-      function fromFrame(candidate) {
-        while (candidate && candidate !== window) {
-          if (candidate === frame.contentWindow) return true;
-          candidate = candidate.parent;
-        }
-        return false;
-      }
-
-      function receive(event) {
-        if (event.data?.session !== request.session) return;
-        if (!source && event.data.type === 'kuchnia-ready-v2' &&
-            /^https:\/\/(script\.google\.com|[\w-]+\.googleusercontent\.com)$/.test(event.origin) &&
-            fromFrame(event.source)) {
-          source = event.source;
-          origin = event.origin;
-          source.postMessage({type:'kuchnia-request-v2',session:request.session,request,key,policy},origin);
-        }
-        if (event.source !== source || event.origin !== origin) return;
-        if (event.data.type === 'kuchnia-result-v2') finish(null,event.data.payload);
-        if (event.data.type === 'kuchnia-error-v2') finish(Error(String(event.data.payload)));
-      }
-
-      window.addEventListener('message',receive);
-      document.body.append(frame);
-    });
+      const result = await response.json();
+      if (result.error) throw Error(result.error);
+      return result;
+    } catch (error) {
+      if (error.name === 'AbortError') throw Error('Apps Script nie odpowiedział w ciągu 45 sekund. Spróbuj ponownie.');
+      if (error instanceof TypeError) throw Error('Nie udało się połączyć z Apps Script bez logowania. Sprawdź adres /exec i dostęp „Każdy” w najnowszym wdrożeniu.');
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   async function syncRecipes(policy = '') {

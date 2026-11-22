@@ -11,7 +11,7 @@ Konfiguracja korzysta z Apps Script i klucza synchronizacji. Arkusz pozostaje pr
 ## Wdróż i połącz
 
 1. Po zapisaniu nowego kodu odśwież arkusz. Wybierz **Moja kuchnia → Utwórz klucz synchronizacji** i skopiuj klucz. Przechowuj go prywatnie. Utworzenie nowego klucza unieważnia poprzedni.
-2. W Apps Script wybierz **Wdróż → Zarządzaj wdrożeniami**, edytuj dotychczasowe wdrożenie i wybierz **Nowa wersja**. Ustaw **Wykonuj jako: Ja** i **Kto ma dostęp: Każdy** (także bez zalogowania). Wdróż. Adres `/exec` pozostaje ten sam. Dostęp do samego arkusza się nie zmienia, a operacje synchronizacji wymagają klucza.
+2. W Apps Script wybierz **Wdróż → Zarządzaj wdrożeniami**, edytuj dotychczasowe wdrożenie i wybierz **Nowa wersja**. Ustaw **Wykonuj jako: Ja** i **Kto ma dostęp: Każdy** (także bez zalogowania). Wdróż. Adres `/exec` pozostaje ten sam. Otwarty bez logowania powinien wyświetlić komunikat „Połączenie bezpośrednie v3”. Dostęp do samego arkusza się nie zmienia, a operacje synchronizacji wymagają klucza.
 3. Otwórz [Moją kuchnię na GitHub Pages](https://marcinsuchy23-hue.github.io/Ksiazka-kucharska/), naciśnij **↻** i wklej adres oraz klucz. Przy kolejnych kliknięciach aplikacja synchronizuje w tle i podaje liczby pobranych i wysłanych wpisów.
 
 Synchronizacja przesyła nowe i zmienione przepisy w obu kierunkach. W razie konfliktu aplikacja wyświetla wybór wersji. Usunięcia stosuje się osobno. Lokalne dane aplikacji nadal są dostępne offline.
