@@ -252,6 +252,7 @@
     const categories = state.books.flatMap(book=>book.categories.map(category=>({book,category})));
     const mentionsSousVide = value => /\bsv\b|\bsous[-–\s]+vide\b/iu.test(value);
     const existing = categories.flatMap(({book,category})=>category.recipes.filter(recipe=>{
+      if (recipe.hideFromPrepIndex) return false;
       if (recipe.prep || mentionsSousVide(category.name)) return true;
       return mentionsSousVide([recipe.name,recipe.description,
         ...(recipe.sections||[]).flatMap(stage=>[stage.name,stage.instructions])].join(' '));
@@ -360,7 +361,9 @@
       <div class="field"><label for="prep-notes">Uwagi</label>
         <textarea id="prep-notes" name="notes" maxlength="2000">${esc(prep.notes||'')}</textarea></div>
       <p class="scan-help" id="prep-error" role="status" hidden></p>
-      <div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button>
+      <div class="form-actions">
+        ${recipe?`<button id="prep-remove" type="button" class="danger-button">${category?'Usuń z tabeli':'Usuń prep'}</button>`:''}
+        <button type="button" class="quiet-button" data-close>Anuluj</button>
         <button type="submit" class="primary-button">Zapisz prep</button></div>
     </form>`,(data,form)=>{
       const field = name=>String(data.get(name)||'').trim();
@@ -398,6 +401,29 @@
       navigate('prep-index');
       toast('Prep zapisany');
     });
+    document.querySelector('#prep-remove')?.addEventListener('click',()=>removePrep(recipe,category));
+  }
+
+  function removePrep(entry,category) {
+    const label = entry.prep?.name || entry.name;
+    const question = category
+      ? `Usunąć „${label}” z tabeli? Przepis pozostanie w książce.`
+      : `Usunąć prep „${label}”?`;
+    if (!confirm(question)) return;
+    const previous = state.prepEntries;
+    if (category) entry.hideFromPrepIndex = true;
+    else state.prepEntries = previous.filter(item=>item.id!==entry.id);
+    try {
+      save();
+    } catch {
+      if (category) delete entry.hideFromPrepIndex;
+      else state.prepEntries = previous;
+      toast('Nie udało się usunąć wpisu.');
+      return;
+    }
+    closeForm();
+    navigate('prep-index');
+    toast(category?'Wpis usunięty z tabeli':'Prep usunięty');
   }
 
   function openBakeJournal(recipe) {
@@ -1103,17 +1129,7 @@
       const entry = state.prepEntries.find(item=>item.id===p[0]);
       if (!entry) return;
       if (act==='edit-index-prep') return prepForm(entry);
-      if (!confirm(`Usunąć prep „${entry.name}”?`)) return;
-      const previous = state.prepEntries;
-      state.prepEntries = previous.filter(item=>item.id!==entry.id);
-      try {save();} catch {
-        state.prepEntries = previous;
-        toast('Nie udało się usunąć wpisu.');
-        return;
-      }
-      navigate('prep-index');
-      toast('Prep usunięty');
-      return;
+      return removePrep(entry);
     }
     if (act==='edit-table-prep') {
       const category = catBy(bookBy(p[0]),p[1]);
