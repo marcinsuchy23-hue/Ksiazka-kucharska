@@ -220,8 +220,8 @@
       results.innerHTML = matches.length ? `<section class="prep-list">
         <div class="prep-table-scroll" tabindex="0" role="region" aria-label="Tabela prep sous-vide">
         <table class="prep-index-table"><thead><tr>
-          <th scope="col">Mięso i kawałek</th><th scope="col">Temperatura SV</th>
-          <th scope="col">Czas SV</th><th scope="col">Porcja / grubość</th>
+          <th scope="col">Mięso i kawałek</th><th scope="col">Temperatura (°C)</th>
+          <th scope="col">Czas obróbki</th><th scope="col">Porcja / grubość</th>
         </tr></thead><tbody>${matches.map(({book,category,recipe})=>{
           const prep = recipe.prep;
           const parameters = prep ? {
@@ -247,12 +247,12 @@
     const pairs = new Map();
     for (const line of text.split(/\r?\n/)) {
       if (!/\bsv\b|\bsous[-–\s]+vide\b|kąpiel/iu.test(line)) continue;
-      const temperatures = [...line.matchAll(/(?<![\d.,+–−-])(\d{1,3}(?:[,.]\d+)?)\s*°\s*C(?![\p{L}\d])/giu)];
+      const temperatures = [...line.matchAll(/(?<![\d.,+–−-])(\d+(?:[,.]\d+)?)\s*°\s*C(?![\p{L}\d])/giu)];
       const durations = [...line.matchAll(/(?<![\d.,+–−-])\d+(?:[,.]\d+)?\s*(?:godz(?:in(?:a|y)?)?\.?|h|min(?:ut(?:a|y)?)?\.?)(?![\p{L}\d])/giu)];
       if (temperatures.length!==1 || durations.length!==1 ||
           /\d\s*[–−-]\s*\d/u.test(line)) continue;
       const temperature = Number(temperatures[0][1].replace(',','.'));
-      if (temperature<=0 || temperature>100) continue;
+      if (!Number.isFinite(temperature) || temperature<=0) continue;
       const duration = durations[0][0].trim();
       pairs.set(`${temperature}:${duration}`,{temperature:`${String(temperature).replace('.',',')} °C`,duration});
     }
@@ -297,8 +297,8 @@
       <article class="recipe-view">
         <header class="recipe-cover"><div class="eyebrow">Prep sous-vide</div><h1 class="heading">${esc(recipe.name)}</h1></header>
         <section class="recipe-section prep-numbers">
-          <div><div class="label">Temperatura kąpieli</div><strong>${esc(prepTemperature(recipe))}</strong></div>
-          <div><div class="label">Czas SV</div><strong>${esc(prep.duration)}</strong></div>
+          <div><div class="label">Temperatura obróbki</div><strong>${esc(prepTemperature(recipe))}</strong></div>
+          <div><div class="label">Czas obróbki</div><strong>${esc(prep.duration)}</strong></div>
         </section>
         ${prep.size?`<section class="recipe-section">
           <h2>Wielkość porcji / grubość</h2><p class="instructions">${esc(prep.size)}</p></section>`:''}
@@ -322,9 +322,9 @@
       <div class="field"><label for="prep-size">Wielkość porcji / grubość</label>
         <input id="prep-size" name="size" maxlength="120" value="${esc(prep.size||'')}"></div>
       <div class="field-row">
-        <div class="field"><label for="prep-temp">Temperatura kąpieli (°C)</label>
-          <input id="prep-temp" name="temperature" inputmode="decimal" maxlength="6" ${existingRecipe?'':'required'} value="${esc(String(prep.temperature??'').replace('.',','))}"></div>
-        <div class="field"><label for="prep-duration">Czas SV</label>
+        <div class="field"><label for="prep-temp">Temperatura obróbki (°C)</label>
+          <input id="prep-temp" name="temperature" inputmode="decimal" ${existingRecipe?'':'required'} value="${esc(String(prep.temperature??'').replace('.',','))}"></div>
+        <div class="field"><label for="prep-duration">Czas obróbki</label>
           <input id="prep-duration" name="duration" ${existingRecipe?'':'required'} maxlength="80" placeholder="np. 8 godz." value="${esc(prep.duration||'')}"></div>
       </div>
       <p class="scan-help" id="prep-error" role="status" hidden></p>
@@ -337,11 +337,11 @@
       const temperature = enteredTemperature ? Number(enteredTemperature.replace(',','.')) : null;
       const error = form.querySelector('#prep-error');
       const invalidTemperature = enteredTemperature &&
-        (!/^\d+(?:[,.]\d{1,2})?$/.test(enteredTemperature) || temperature<=0 || temperature>100);
+        (!/^\d+(?:[,.]\d{1,2})?$/.test(enteredTemperature) || !Number.isFinite(temperature) || temperature<=0);
       if (!name || invalidTemperature || (!existingRecipe && (!duration || temperature===null))) {
         error.textContent = existingRecipe
-          ? 'Podaj nazwę wpisu. Temperatura, jeśli ją podajesz, musi być powyżej 0 i do 100 °C.'
-          : 'Wpisz nazwę, czas i temperaturę kąpieli powyżej 0 i do 100 °C.';
+          ? 'Podaj nazwę wpisu. Temperatura, jeśli ją podajesz, musi być powyżej 0 °C.'
+          : 'Wpisz nazwę, czas i temperaturę obróbki powyżej 0 °C.';
         error.hidden = false;
         return;
       }
