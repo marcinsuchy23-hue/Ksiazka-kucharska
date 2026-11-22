@@ -59,8 +59,6 @@
     .prep-index-table th:last-child {min-width:110px}
     .prep-row-edit {display:block;font-size:13px;padding:6px 0}
     .prep-index-toolbar {display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
-    .prep-index-toolbar select {max-width:100%;padding:9px;border:1px solid var(--line);border-radius:9px;background:var(--card)}
-    .prep-status {font-size:13px;color:var(--muted)}
     @media print {
       .prep-index-toolbar,.prep-index-add,.prep-row-edit {display:none!important}
       .prep-table-scroll {overflow:visible}
@@ -204,7 +202,7 @@
   function recipeMatches(recipe,query) {
     const prep = recipe.prep;
     const values = [recipe.name,recipe.description];
-    if (prep) values.push('prep sous-vide',prep.name,prep.temperature == null ? '' : prepTemperature(recipe),prep.duration,prep.size,prep.notes,prepStatusLabel(prep.status));
+    if (prep) values.push('prep sous-vide',prep.name,prep.temperature == null ? '' : prepTemperature(recipe),prep.duration,prep.size,prep.notes);
     return values.join(' ').toLocaleLowerCase('pl').includes(query);
   }
   function renderBook(){const b=bookBy(route.book);if(!b){route={type:'home'};return renderHome()};
@@ -277,22 +275,17 @@
         <button type="button" class="primary-button prep-index-add" data-action="add-index-prep">＋ Dodaj prep SV</button></section>
       <div class="prep-index-toolbar"><input id="prep-index-search" class="search" type="search"
         aria-label="Szukaj prepu sous-vide" placeholder="Szukaj mięsa lub kawałka">
-        <select id="prep-status-filter" aria-label="Filtruj według statusu">
-          <option value="">Wszystkie statusy</option>
-          <option value="verified">Sprawdzone</option><option value="none">Bez oznaczenia</option>
-        </select></div>
+</div>
       ${viewZoomControls('Widok tabeli','<button type="button" class="quiet-button" id="prep-print">Zapisz / drukuj PDF</button>')}
       <div id="prep-index-results"></div></div>`;
     const zoomKey = 'domowa-kuchnia-prep-zoom';
     bindViewZoom(localStorage.getItem(zoomKey),zoom=>localStorage.setItem(zoomKey,String(zoom)));
     const input = main.querySelector('#prep-index-search');
     const results = main.querySelector('#prep-index-results');
-    const filter = main.querySelector('#prep-status-filter');
     const print = main.querySelector('#prep-print');
     function refresh() {
       const query = input.value.trim().toLocaleLowerCase('pl');
       const matches = entries.filter(({book,category,recipe})=>{
-        if (filter.value && filter.value!==(recipe.prep?.status==='verified'?'verified':'none')) return false;
         return recipeMatches(recipe,query) ||
           Boolean(book && `${book.name} ${category.name}`.toLocaleLowerCase('pl').includes(query));
       });
@@ -310,23 +303,16 @@
           const values = [parameters?.temperature,parameters?.duration,prep?.size,prep?.notes];
           return `<tr><th scope="row"><button type="button" class="text-button"
             data-action="${book?`recipe:${book.id}:${category.id}:${recipe.id}`:`prep-entry:${recipe.id}`}">${esc(prep?.name||recipe.name)}</button>
-            ${prepStatusLabel(prep?.status)?`<div class="prep-status">${prepStatusLabel(prep.status)}</div>`:''}
             <button type="button" class="text-button prep-row-edit" aria-label="Edytuj prep ${esc(prep?.name||recipe.name)}"
               data-action="${book?`edit-table-prep:${book.id}:${category.id}:${recipe.id}`:`edit-index-prep:${recipe.id}`}">Edytuj</button></th>
             ${values.map(value=>`<td>${esc(value||'—')}</td>`).join('')}</tr>`;
         }).join('')}</tbody></table></div></section>` :
-        `<div class="empty"><h2>${query||filter.value?'Brak wyników':'Brak wpisów sous-vide'}</h2><p>
-          ${query||filter.value?'Zmień wyszukiwanie lub status.':'Dodaj prep, aby zapisać pierwszą temperaturę i czas.'}</p></div>`;
+        `<div class="empty"><h2>${query?'Brak wyników':'Brak wpisów sous-vide'}</h2><p>
+          ${query?'Spróbuj wpisać inną nazwę.':'Dodaj prep, aby zapisać pierwszą temperaturę i czas.'}</p></div>`;
     }
     input.addEventListener('input',refresh);
-    filter.addEventListener('change',refresh);
     print.addEventListener('click',()=>window.print());
     refresh();
-  }
-
-  function prepStatusLabel(status) {
-    if (status==='verified') return 'Sprawdzone';
-    return '';
   }
 
   function readPrepParameters(recipe) {
@@ -357,7 +343,7 @@
     main.innerHTML = `${crumb([{label:'Moja kuchnia',route:'home'},
       {label:'Prep sous-vide',route:'prep-index'},{label:recipe.name}])}
       <article class="recipe-view">
-        <header class="recipe-cover"><div class="eyebrow">Prep sous-vide</div><h1 class="heading">${esc(recipe.name)}</h1>${prepStatusLabel(prep.status)?`<p class="prep-status">${prepStatusLabel(prep.status)}</p>`:''}</header>
+        <header class="recipe-cover"><div class="eyebrow">Prep sous-vide</div><h1 class="heading">${esc(recipe.name)}</h1></header>
         <section class="recipe-section prep-numbers">
           <div><div class="label">Temperatura obróbki</div><strong>${esc(prepTemperature(recipe))}</strong></div>
           <div><div class="label">Czas obróbki</div><strong>${esc(prep.duration)}</strong></div>
@@ -390,11 +376,6 @@
         <div class="field"><label for="prep-duration">Czas obróbki</label>
           <input id="prep-duration" name="duration" ${existingRecipe?'':'required'} maxlength="80" placeholder="np. 8 godz." value="${esc(prep.duration||'')}"></div>
       </div>
-      <div class="field"><label for="prep-status">Status</label>
-        <select id="prep-status" name="status">
-          <option value="" ${prep.status!=='verified'?'selected':''}>Bez oznaczenia</option>
-          <option value="verified" ${prep.status==='verified'?'selected':''}>Sprawdzone</option>
-        </select></div>
       <div class="field"><label for="prep-notes">Uwagi</label>
         <textarea id="prep-notes" name="notes" maxlength="2000">${esc(prep.notes||'')}</textarea></div>
       <p class="scan-help" id="prep-error" role="status" hidden></p>
@@ -418,7 +399,7 @@
         return;
       }
       const previous = category ? category.recipes : state.prepEntries;
-      const updatedPrep = {...recipe?.prep,size:field('size'),temperature,duration,notes:field('notes'),status:field('status')};
+      const updatedPrep = {...recipe?.prep,size:field('size'),temperature,duration,notes:field('notes')};
       const entry = existingRecipe
         ? {...recipe,prep:{...updatedPrep,name}}
         : {...recipe,id:recipe?.id||id(),kind:'prep-sv',name,sections:[],prep:updatedPrep};
