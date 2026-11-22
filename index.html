@@ -257,7 +257,10 @@
       return mentionsSousVide([recipe.name,recipe.description,
         ...(recipe.sections||[]).flatMap(stage=>[stage.name,stage.instructions])].join(' '));
     }).map(recipe=>({book,category,recipe})));
-    const entries = [...state.prepEntries.map(recipe=>({recipe})),...existing];
+    const prepName = ({recipe})=>recipe.prep?.name || recipe.name;
+    const collator = new Intl.Collator('pl');
+    const entries = [...state.prepEntries.map(recipe=>({recipe})),...existing]
+      .sort((a,b)=>collator.compare(prepName(a),prepName(b)));
     main.innerHTML = `<div class="recipe-screen" id="recipe-zoom-area">${crumb([{label:'Moja kuchnia',route:'home'},{label:'Prep sous-vide'}])}
       <section class="page-head"><h1 class="heading">Prep sous-vide</h1>
         <button type="button" class="primary-button" data-action="add-index-prep">＋ Dodaj prep SV</button></section>
