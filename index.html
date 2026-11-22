@@ -37,6 +37,7 @@
     .recipe-notes-list {padding-left:20px}
     .recipe-notes-list p {white-space:pre-wrap;margin:4px 0 12px}
     .cooking-nav {display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px}
+    .cooking-nav a {text-decoration:none}
     .cooking-ingredients {list-style:none;padding:0}
     .cooking-ingredients label {display:flex;align-items:center;gap:12px;min-height:44px}
     .cooking-ingredients input {width:22px;height:22px}
@@ -206,7 +207,7 @@
     const checked = new Set();
     let step = 0;
     let deadline = 0;
-    let timer, audio;
+    let timer, audio, alarm;
     showForm('Tryb gotowania',`<div id="cook-stage"></div>
       <div class="cooking-nav"><button type="button" class="quiet-button" id="cook-back">Wstecz</button>
         <button type="button" class="quiet-button" id="cook-next">Dalej</button></div>
@@ -220,30 +221,56 @@
 
     function stopTimer() {
       clearInterval(timer);
+      clearTimeout(alarm?.hideStop);
+      alarm?.oscillator.stop();
+      alarm = undefined;
       deadline = 0;
       stop.hidden = true;
       clock.textContent = '';
     }
 
+    function playAlarm() {
+      if (!audio || audio.state!=='running') return;
+      const oscillator = audio.createOscillator();
+      const volume = audio.createGain();
+      const start = audio.currentTime+.02;
+      volume.gain.value = 0;
+      for (let i=0;i<8;i++) {
+        const pulse = start+i*.8;
+        oscillator.frequency.setValueAtTime(i%2 ? 940 : 720,pulse);
+        volume.gain.setValueAtTime(0,pulse);
+        volume.gain.linearRampToValueAtTime(.8,pulse+.03);
+        volume.gain.setValueAtTime(.8,pulse+.32);
+        volume.gain.linearRampToValueAtTime(0,pulse+.42);
+      }
+      oscillator.connect(volume).connect(audio.destination);
+      oscillator.start(start);
+      oscillator.stop(start+6.4);
+      stop.hidden = false;
+      alarm = {oscillator,hideStop:setTimeout(()=>{
+        alarm = undefined;
+        stop.hidden = true;
+      },6500)};
+    }
+
     function tick() {
       const seconds = Math.max(0,Math.ceil((deadline-Date.now())/1000));
       if (!seconds) {
+        if (document.hidden) return;
         stopTimer();
         clock.textContent = 'Czas minął!';
-        navigator.vibrate?.(250);
-        if (audio?.state==='running') {
-          const beep = audio.createOscillator();
-          const volume = audio.createGain();
-          beep.frequency.value = 740;
-          volume.gain.setValueAtTime(.15,audio.currentTime);
-          volume.gain.exponentialRampToValueAtTime(.001,audio.currentTime+.7);
-          beep.connect(volume).connect(audio.destination);
-          beep.start();
-          beep.stop(audio.currentTime+.7);
-        }
+        navigator.vibrate?.([250,150,250,150,250]);
+        if (audio?.state==='running') playAlarm();
+        else audio?.resume().then(()=>{
+          if (clock.isConnected && clock.textContent==='Czas minął!') playAlarm();
+        }).catch(()=>{});
         return;
       }
       clock.textContent = `Minutnik: ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;
+    }
+
+    function resumeTimer() {
+      if (deadline && !document.hidden) tick();
     }
 
     function renderStage() {
@@ -267,7 +294,9 @@
         }).join('')}</ul>
         ${text ? `<p class="instructions">${esc(text)}</p>` : ''}
         <div class="cooking-nav">${[...times].map(([seconds,label])=>
-          `<button type="button" class="quiet-button" data-cook-timer="${seconds}">Minutnik · ${esc(label)}</button>`).join('')}</div>`;
+          `<button type="button" class="quiet-button" data-cook-timer="${seconds}">Minutnik · ${esc(label)}</button>
+          ${appleTouchDevice ? `<a class="quiet-button" href="shortcuts://run-shortcut?name=Minutnik%20Moja%20kuchnia&amp;input=text&amp;text=${seconds}">Zegar iPhone’a · ${esc(label)}</a>` : ''}`).join('')}</div>
+        ${appleTouchDevice && times.size ? '<p class="scan-help">Po zablokowaniu telefonu użyj opcji „Zegar iPhone’a”. Wymaga skrótu „Minutnik Moja kuchnia”.</p>' : ''}`;
       back.disabled = step===0;
       next.disabled = step===recipe.sections.length-1;
     }
@@ -294,7 +323,12 @@
     back.addEventListener('click',()=>{step--;renderStage();});
     next.addEventListener('click',()=>{step++;renderStage();});
     stop.addEventListener('click',stopTimer);
-    formCleanup = () => {stopTimer();audio?.close().catch(()=>{});};
+    document.addEventListener('visibilitychange',resumeTimer);
+    formCleanup = () => {
+      stopTimer();
+      document.removeEventListener('visibilitychange',resumeTimer);
+      audio?.close().catch(()=>{});
+    };
     renderStage();
   }
 
