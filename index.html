@@ -278,7 +278,7 @@
       <div class="prep-index-toolbar"><input id="prep-index-search" class="search" type="search"
         aria-label="Szukaj prepu sous-vide" placeholder="Szukaj mięsa lub kawałka">
         <select id="prep-status-filter" aria-label="Filtruj według statusu">
-          <option value="">Wszystkie statusy</option><option value="trial">Do sprawdzenia</option>
+          <option value="">Wszystkie statusy</option>
           <option value="verified">Sprawdzone</option><option value="none">Bez oznaczenia</option>
         </select></div>
       ${viewZoomControls('Widok tabeli','<button type="button" class="quiet-button" id="prep-print">Zapisz / drukuj PDF</button>')}
@@ -292,7 +292,7 @@
     function refresh() {
       const query = input.value.trim().toLocaleLowerCase('pl');
       const matches = entries.filter(({book,category,recipe})=>{
-        if (filter.value && filter.value!==(recipe.prep?.status||'none')) return false;
+        if (filter.value && filter.value!==(recipe.prep?.status==='verified'?'verified':'none')) return false;
         return recipeMatches(recipe,query) ||
           Boolean(book && `${book.name} ${category.name}`.toLocaleLowerCase('pl').includes(query));
       });
@@ -325,7 +325,6 @@
   }
 
   function prepStatusLabel(status) {
-    if (status==='trial') return 'Do sprawdzenia';
     if (status==='verified') return 'Sprawdzone';
     return '';
   }
@@ -393,8 +392,7 @@
       </div>
       <div class="field"><label for="prep-status">Status</label>
         <select id="prep-status" name="status">
-          <option value="" ${recipe&&!prep.status?'selected':''}>Bez oznaczenia</option>
-          <option value="trial" ${!recipe||prep.status==='trial'?'selected':''}>Do sprawdzenia</option>
+          <option value="" ${prep.status!=='verified'?'selected':''}>Bez oznaczenia</option>
           <option value="verified" ${prep.status==='verified'?'selected':''}>Sprawdzone</option>
         </select></div>
       <div class="field"><label for="prep-notes">Uwagi</label>
