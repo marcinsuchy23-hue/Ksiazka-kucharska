@@ -51,11 +51,11 @@
     .prep-list th[scope=col] {color:var(--muted);font-size:13px}
     .prep-list button {text-align:left}
     .prep-table-scroll {overflow-x:auto}
-    .prep-index-table {min-width:690px}
+    .prep-index-table {min-width:320px}
     .prep-index-table td {vertical-align:top;white-space:pre-wrap}
-    .prep-index-table th:first-child {min-width:125px}
+    .prep-index-table th:first-child {min-width:100px}
     .prep-row-edit {display:block;font-size:13px;padding:6px 0}
-    .prep-index-table th:nth-child(2),.prep-index-table th:nth-child(3) {min-width:85px}
+    .prep-index-table th:nth-child(2),.prep-index-table th:nth-child(3) {min-width:65px}
     .prep-numbers {display:flex;gap:18px;flex-wrap:wrap}
     .prep-numbers strong {display:block;margin-top:5px;color:var(--green);font-size:25px}
     .baking-settings {flex-basis:100%}
@@ -164,7 +164,7 @@
   function recipeMatches(recipe,query) {
     const prep = recipe.prep;
     const values = [recipe.name,recipe.description];
-    if (prep) values.push('prep sous-vide',prep.name,prep.temperature == null ? '' : prepTemperature(recipe),prep.duration,prep.before,prep.size,prep.after);
+    if (prep) values.push('prep sous-vide',prep.name,prep.temperature == null ? '' : prepTemperature(recipe),prep.duration,prep.size);
     return values.join(' ').toLocaleLowerCase('pl').includes(query);
   }
   function renderBook(){const b=bookBy(route.book);if(!b){route={type:'home'};return renderHome()};
@@ -221,14 +221,13 @@
         <div class="prep-table-scroll" tabindex="0" role="region" aria-label="Tabela prep sous-vide">
         <table class="prep-index-table"><thead><tr>
           <th scope="col">Mięso i kawałek</th><th scope="col">Temperatura SV</th>
-          <th scope="col">Czas SV</th><th scope="col">Przed pakowaniem</th>
-          <th scope="col">Porcja / grubość</th><th scope="col">Po obróbce</th>
+          <th scope="col">Czas SV</th><th scope="col">Porcja / grubość</th>
         </tr></thead><tbody>${matches.map(({book,category,recipe})=>{
           const prep = recipe.prep;
           const parameters = prep ? {
             temperature:prep.temperature == null ? '' : prepTemperature(recipe),duration:prep.duration
           } : readPrepParameters(recipe);
-          const values = [parameters?.temperature,parameters?.duration,prep?.before,prep?.size,prep?.after];
+          const values = [parameters?.temperature,parameters?.duration,prep?.size];
           return `<tr><th scope="row"><button type="button" class="text-button"
             data-action="recipe:${book.id}:${category.id}:${recipe.id}">${esc(prep?.name||recipe.name)}</button>
             <button type="button" class="text-button prep-row-edit" aria-label="Edytuj prep ${esc(prep?.name||recipe.name)}"
@@ -293,11 +292,6 @@
 
   function renderPrep(book,category,recipe) {
     const prep = recipe.prep;
-    const details = [
-      ['Przygotowanie przed pakowaniem',prep.before],
-      ['Wielkość porcji / grubość',prep.size],
-      ['Po obróbce',prep.after]
-    ];
     main.innerHTML = `${crumb([{label:'Moja kuchnia',route:'home'},{label:book.name,route:`book:${book.id}`},
       {label:category.name,route:`category:${book.id}:${category.id}`},{label:recipe.name}])}
       <article class="recipe-view">
@@ -306,8 +300,8 @@
           <div><div class="label">Temperatura kąpieli</div><strong>${esc(prepTemperature(recipe))}</strong></div>
           <div><div class="label">Czas SV</div><strong>${esc(prep.duration)}</strong></div>
         </section>
-        ${details.filter(([,value])=>value).map(([label,value])=>`<section class="recipe-section">
-          <h2>${label}</h2><p class="instructions">${esc(value)}</p></section>`).join('')}
+        ${prep.size?`<section class="recipe-section">
+          <h2>Wielkość porcji / grubość</h2><p class="instructions">${esc(prep.size)}</p></section>`:''}
         <div class="top-actions recipe-actions">
           <button type="button" class="quiet-button" data-action="edit-prep:${book.id}:${category.id}:${recipe.id}">Edytuj prep</button>
           <button type="button" class="danger-button" data-action="delete-recipe:${book.id}:${category.id}:${recipe.id}">Usuń</button>
@@ -325,8 +319,6 @@
     showForm(recipe?'Edytuj prep SV':'Nowy prep SV',`<form id="edit-form" class="form">
       <div class="field"><label for="prep-name">Mięso i kawałek</label>
         <input id="prep-name" name="name" required maxlength="90" value="${esc(prep.name||recipe?.name||'')}"></div>
-      <div class="field"><label for="prep-before">Przygotowanie przed pakowaniem</label>
-        <textarea id="prep-before" name="before" maxlength="2000">${esc(prep.before||'')}</textarea></div>
       <div class="field"><label for="prep-size">Wielkość porcji / grubość</label>
         <input id="prep-size" name="size" maxlength="120" value="${esc(prep.size||'')}"></div>
       <div class="field-row">
@@ -335,8 +327,6 @@
         <div class="field"><label for="prep-duration">Czas SV</label>
           <input id="prep-duration" name="duration" ${existingRecipe?'':'required'} maxlength="80" placeholder="np. 8 godz." value="${esc(prep.duration||'')}"></div>
       </div>
-      <div class="field"><label for="prep-after">Po obróbce</label>
-        <textarea id="prep-after" name="after" maxlength="2000">${esc(prep.after||'')}</textarea></div>
       <p class="scan-help" id="prep-error" role="status" hidden></p>
       <div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button>
         <button type="submit" class="primary-button">Zapisz prep</button></div>
@@ -356,7 +346,7 @@
         return;
       }
       const previous = category.recipes;
-      const updatedPrep = {before:field('before'),size:field('size'),temperature,duration,after:field('after')};
+      const updatedPrep = {...recipe?.prep,size:field('size'),temperature,duration};
       const entry = existingRecipe
         ? {...recipe,prep:{...updatedPrep,name}}
         : {...recipe,id:recipe?.id||id(),kind:'prep-sv',name,sections:[],prep:updatedPrep};
