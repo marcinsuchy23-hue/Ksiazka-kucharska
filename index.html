@@ -1118,19 +1118,39 @@
       ...(index>0&&section.querySelector('[data-baker-continue]').checked?{continuesPreviousStage:true}:{})
     };
   }
+  function parseDictatedStage(text,defaultName,numbered) {
+    const method = /(?:^|[\s.!?:;,])(?:sposób przygotowania|przygotowanie|wykonanie)(?=[\s:.,;]|$)\s*[:.,;]?\s*/iu.exec(text);
+    const beforeMethod = method ? text.slice(0,method.index) : text;
+    const ingredientHeading = /(?:^|[\s.!?:;,])(?:lista składników|składniki)(?=[\s:.,;]|$)\s*[:.,;]?\s*/iu.exec(beforeMethod);
+    const firstQuantity = numbered && !ingredientHeading
+      ? /(?:^|[\s:;,])(?=\d+(?:[,.]\d+)?\s*(?:g|gram\p{L}*|kg|kilogram\p{L}*|mg|ml|mililitr\p{L}*|l|litr\p{L}*|dag|dkg|łyż\p{L}*|szklan\p{L}*|szt\.?|sztuk\p{L}*)(?=\s))/iu.exec(beforeMethod)
+      : null;
+    const start = ingredientHeading || firstQuantity;
+    const nameText = (start ? beforeMethod.slice(0,start.index) : beforeMethod)
+      .replace(/^[\s:.,;–—-]+|[\s:.,;–—-]+$/gu,'').trim();
+    const ingredientText = start ? beforeMethod.slice(start.index+start[0].length) : '';
+    const ingredients = parseDictatedIngredients(ingredientText.replace(/\bprzecinek\b/giu,','));
+    const instructions = method ? text.slice(method.index+method[0].length).trim() : '';
+    if (!ingredients.length && !instructions) return null;
+    return {name:nameText||defaultName,ingredients,instructions};
+  }
+
   function parseDictatedRecipe(text) {
     const source = text.trim().replace(/\bnowy wiersz\b/giu,'\n');
-    const ingredientsHeading = /(?:^|[\s.!?:;,])(?:lista składników|składniki)(?=[\s:.,;]|$)\s*[:.,;]?\s*/iu.exec(source);
-    if (!ingredientsHeading) return null;
-    const remainder = source.slice(ingredientsHeading.index+ingredientsHeading[0].length);
-    const methodHeading = /(?:^|[\s.!?:;,])(?:sposób przygotowania|przygotowanie|wykonanie)(?=[\s:.,;]|$)\s*[:.,;]?\s*/iu.exec(remainder);
-    if (!methodHeading) return null;
-    const name = source.slice(0,ingredientsHeading.index).replace(/^tytuł(?: przepisu)?[\s:.,;]+/iu,'')
+    const markers = [...source.matchAll(/(?<![\p{L}\d])etap\s+(?:nr\.?\s+)?(?:\d+|pierwszy|drugi|trzeci|czwarty|piąty|piaty|szósty|szosty|siódmy|siodmy|ósmy|osmy|dziewiąty|dziewiaty|dziesiąty|dziesiaty|jeden|dwa|trzy|cztery|pięć)(?=[\s:.,;–—-]|$)[\s:.,;–—-]*/giu)];
+    const title = value => value.trim().replace(/^tytuł(?: przepisu)?[\s:.,;]+/iu,'')
       .replace(/[\s:.,;]+$/u,'').slice(0,90).trim();
-    const ingredients = parseDictatedIngredients(remainder.slice(0,methodHeading.index).replace(/\bprzecinek\b/giu,','));
-    const instructions = remainder.slice(methodHeading.index+methodHeading[0].length).trim();
-    if (!name || !ingredients.length || !instructions) return null;
-    return {name,servings:1,sections:[{name:'Przygotowanie',ingredients,instructions}]};
+    if (markers.length) {
+      const name = title(source.slice(0,markers[0].index)) || 'Podyktowany przepis';
+      const sections = markers.map((marker,i)=>parseDictatedStage(
+        source.slice(marker.index+marker[0].length,markers[i+1]?.index),`Etap ${i+1}`,true));
+      if (sections.some(section=>!section)) return null;
+      return {name,servings:1,sections};
+    }
+    const stage = parseDictatedStage(source,'',false);
+    const name = title(stage?.name||'');
+    if (!name || !stage.ingredients.length || !stage.instructions) return null;
+    return {name,servings:1,sections:[{...stage,name:'Przygotowanie'}]};
   }
 
   function dictateRecipe(book,category) {
@@ -1138,14 +1158,14 @@
       <div class="field"><label for="dictated-recipe">Tekst przepisu</label>
         <textarea id="dictated-recipe" name="text" rows="7" required
           placeholder="Zupa pomidorowa. Składniki: 500 g pomidorów, 250 ml bulionu. Przygotowanie: Gotuj 20 minut."></textarea></div>
-      <p class="scan-help">Stuknij mikrofon na klawiaturze. Powiedz nazwę przepisu, potem „składniki”, listę składników, a na końcu „przygotowanie” i instrukcję.</p>
+      <p class="scan-help">Stuknij mikrofon na klawiaturze. Przy kilku etapach powiedz np. „Etap pierwszy, zaczyn. Składniki: … Etap drugi, ciasto. Składniki: … Przygotowanie: …”. Przy jednym etapie wystarczy nazwa przepisu, składniki i przygotowanie.</p>
       <p class="scan-help" id="dictated-recipe-message" role="status" hidden></p>
       <div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button>
         <button type="submit" class="primary-button">Sprawdź szkic</button></div></form>`,(data,form)=>{
       const draft = parseDictatedRecipe(String(data.get('text')));
       if (!draft) {
         const message = form.querySelector('#dictated-recipe-message');
-        message.textContent = 'Podaj nazwę i dodaj nagłówki „Składniki” oraz „Przygotowanie”, z tekstem pod każdym z nich.';
+        message.textContent = 'Sprawdź podział tekstu. Przy kilku etapach zacznij każdy od „Etap pierwszy”, „Etap drugi” itd. i podaj składniki lub przygotowanie.';
         message.hidden = false;
         return;
       }
