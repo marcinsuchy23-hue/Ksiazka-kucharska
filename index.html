@@ -31,7 +31,7 @@
 <div class="shell">
   <header class="topbar">
     <a class="brand" href="#" id="home-link"><span class="brandmark">✳</span><span class="brand-name">Moja kuchnia</span></a>
-    <div class="top-actions"><button class="quiet-button" id="google-sync" title="Synchronizuj z Arkuszem Google">Google</button><button class="quiet-button" id="import-button" title="Wczytaj kopię zapasową">↥ <span class="backup-label">Wczytaj kopię</span></button><button class="quiet-button" id="export-button" title="Zapisz kopię zapasową">↧ <span class="backup-label">Kopia zapasowa</span></button><input id="import-file" type="file" accept="application/json,.json" class="hidden"></div>
+    <div class="top-actions"><button class="quiet-button" id="google-sync" title="Synchronizuj z Arkuszem Google" aria-label="Synchronizuj z Arkuszem Google"><span aria-hidden="true">↻</span></button><button class="quiet-button" id="import-button" title="Wczytaj kopię zapasową">↥ <span class="backup-label">Wczytaj kopię</span></button><button class="quiet-button" id="export-button" title="Zapisz kopię zapasową">↧ <span class="backup-label">Kopia zapasowa</span></button><input id="import-file" type="file" accept="application/json,.json" class="hidden"></div>
   </header>
   <main id="main" class="main"></main>
   <p class="footer-note">Twoje przepisy są zapisane na tym urządzeniu.</p>
@@ -212,10 +212,11 @@
   document.querySelector('#google-sync').addEventListener('click', () => {
     const settingsKey = 'domowa-kuchnia-apps-script';
     const format = 'moja-kuchnia-sync-1';
+    const savedUrl = localStorage.getItem(settingsKey) || '';
     showForm('Synchronizacja z Arkuszem Google', `
       <form id="edit-form" class="form">
         <div class="field"><label for="google-url">Adres wdrożenia Apps Script (końcówka /exec)</label>
-          <input id="google-url" name="url" required value="${esc(localStorage.getItem(settingsKey) || '')}"></div>
+          <input id="google-url" name="url" required value="${esc(savedUrl)}"></div>
         <div class="form-actions"><button class="primary-button">Otwórz synchronizację</button></div>
         <p class="scan-help" id="google-status" role="status"></p>
         <details id="google-manual" hidden>
@@ -244,7 +245,7 @@
       const popup = window.open(target.href, '_blank');
       form.querySelector('#google-manual').hidden = false;
       form.querySelector('#google-request').value = JSON.stringify(payload);
-      status.textContent = popup ? 'Zatwierdź synchronizację w oknie Google.' : 'Przeglądarka zablokowała okno. Otwórz adres wdrożenia w osobnej karcie i użyj kodu wymiany.';
+      status.textContent = popup ? 'Łączenie z Google. Zaloguj się, jeśli Google o to poprosi.' : 'Przeglądarka zablokowała okno. Otwórz adres wdrożenia w osobnej karcie i użyj kodu wymiany.';
       localStorage.setItem(settingsKey,url);
       if (form.stopGoogleSync) form.stopGoogleSync();
       let trustedSource, trustedOrigin;
@@ -256,6 +257,7 @@
         localStorage.setItem(KEY,JSON.stringify(snapshot));
         state=snapshot;
         localStorage.setItem(key,JSON.stringify(result.baseline));
+        popup?.close();
         closeForm();
         render();
         toast(`Synchronizacja zakończona. Wysłano ${result.uploaded}, pobrano ${result.download.length}.`);
@@ -266,7 +268,7 @@
             /^https:\/\/(script\.google\.com|[\w-]+\.googleusercontent\.com)$/.test(event.origin)) {
           trustedSource = event.source;
           trustedOrigin = event.origin;
-          trustedSource.postMessage({type:'kuchnia-request',session,payload},trustedOrigin);
+          trustedSource.postMessage({type:'kuchnia-request',session,payload,auto:true},trustedOrigin);
         }
         if (event.data.type === 'kuchnia-result' && event.source === trustedSource && event.origin === trustedOrigin) {
           try { accept(event.data.payload); } catch (error) { status.textContent = error.message; }
@@ -279,6 +281,7 @@
         catch (error) { status.textContent = error instanceof SyntaxError ? 'Wklej pełny wynik z Apps Script.' : error.message; }
       };
     });
+    if (savedUrl) document.querySelector('#edit-form').requestSubmit();
   });
   if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(()=>{});
   render();

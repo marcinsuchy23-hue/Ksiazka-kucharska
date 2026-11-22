@@ -206,6 +206,7 @@ function doGet(e) {
       connected = true;
       field('input').value = JSON.stringify(event.data.payload);
       field('status').textContent = 'Połączono z aplikacją. Kliknij Synchronizuj, aby zatwierdzić zapis.';
+      if (event.data.auto === true && event.origin === 'https://marcinsuchy23-hue.github.io') field('save').click();
     });
     field('save').onclick = () => {
       if (running) return;

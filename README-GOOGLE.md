@@ -11,7 +11,7 @@ Konfiguracja korzysta z Apps Script i prywatnego wdrożenia dla właściciela. N
 ## Wdróż i połącz
 
 1. W edytorze Apps Script wybierz **Wdróż → Nowe wdrożenie → Aplikacja internetowa**. Ustaw **Wykonuj jako: Ja** i **Kto ma dostęp: Tylko ja**. Wdróż i skopiuj adres kończący się na `/exec`. W razie kolejnej zmiany kodu zaktualizuj to samo wdrożenie przez **Zarządzaj wdrożeniami** i wybierz nową wersję.
-2. Otwórz aktualną wersję „Mojej kuchni” przez HTTPS lub na serwerze lokalnym. Kliknij **Google**, wklej adres wdrożenia i wybierz **Otwórz synchronizację**. Zaloguj się w nowym oknie na konto właściciela i kliknij w nim **Synchronizuj**.
+2. Otwórz aktualną wersję „Mojej kuchni” przez HTTPS lub na serwerze lokalnym. Kliknij **↻**, wklej adres wdrożenia i wybierz **Otwórz synchronizację**. Jeśli Google poprosi o zalogowanie, wybierz konto właściciela. Po zapisaniu adresu kliknięcie **↻** od razu rozpoczyna wymianę w obu kierunkach. Jeśli wykryje konflikt, okno Google pozostanie otwarte z wyborem wersji.
 3. Jeśli przeglądarka odseparuje okna, w aplikacji rozwiń **Ręczne przekazanie danych**. Skopiuj kod wymiany do okna Google i wybierz **Synchronizuj**. Skopiuj wynik z okna Google do aplikacji i kliknij **Odbierz wynik**.
 
 Synchronizacja przesyła nowe i zmienione przepisy w obu kierunkach. Skrypt zatrzymuje zapis, jeśli wykryje sprzeczne zmiany, i pozwala wskazać, którą stronę zachować dla zgłoszonych konfliktów. Usunięcia stosuje się osobno. Lokalne dane aplikacji nadal są dostępne offline.
