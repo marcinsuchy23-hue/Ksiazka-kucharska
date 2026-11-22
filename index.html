@@ -54,6 +54,7 @@
     .prep-index-table {min-width:690px}
     .prep-index-table td {vertical-align:top;white-space:pre-wrap}
     .prep-index-table th:first-child {min-width:125px}
+    .prep-row-edit {display:block;font-size:13px;padding:6px 0}
     .prep-index-table th:nth-child(2),.prep-index-table th:nth-child(3) {min-width:85px}
     .prep-numbers {display:flex;gap:18px;flex-wrap:wrap}
     .prep-numbers strong {display:block;margin-top:5px;color:var(--green);font-size:25px}
@@ -161,9 +162,9 @@
   }
 
   function recipeMatches(recipe,query) {
-    const prep = recipe.kind==='prep-sv' ? recipe.prep : null;
+    const prep = recipe.prep;
     const values = [recipe.name,recipe.description];
-    if (prep) values.push('prep sous-vide',prepTemperature(recipe),prep.duration,prep.before,prep.size,prep.after);
+    if (prep) values.push('prep sous-vide',prep.name,prep.temperature == null ? '' : prepTemperature(recipe),prep.duration,prep.before,prep.size,prep.after);
     return values.join(' ').toLocaleLowerCase('pl').includes(query);
   }
   function renderBook(){const b=bookBy(route.book);if(!b){route={type:'home'};return renderHome()};
@@ -200,7 +201,7 @@
     const categories = state.books.flatMap(book=>book.categories.map(category=>({book,category})));
     const mentionsSousVide = value => /\bsv\b|\bsous[-–\s]+vide\b/iu.test(value);
     const entries = categories.flatMap(({book,category})=>category.recipes.filter(recipe=>{
-      if (recipe.kind==='prep-sv' || mentionsSousVide(category.name)) return true;
+      if (recipe.prep || mentionsSousVide(category.name)) return true;
       return mentionsSousVide([recipe.name,recipe.description,
         ...(recipe.sections||[]).flatMap(stage=>[stage.name,stage.instructions])].join(' '));
     }).map(recipe=>({book,category,recipe})));
@@ -223,11 +224,15 @@
           <th scope="col">Czas SV</th><th scope="col">Przed pakowaniem</th>
           <th scope="col">Porcja / grubość</th><th scope="col">Po obróbce</th>
         </tr></thead><tbody>${matches.map(({book,category,recipe})=>{
-          const prep = recipe.kind==='prep-sv' ? recipe.prep : null;
-          const parameters = prep ? {temperature:prepTemperature(recipe),duration:prep.duration} : readPrepParameters(recipe);
+          const prep = recipe.prep;
+          const parameters = prep ? {
+            temperature:prep.temperature == null ? '' : prepTemperature(recipe),duration:prep.duration
+          } : readPrepParameters(recipe);
           const values = [parameters?.temperature,parameters?.duration,prep?.before,prep?.size,prep?.after];
           return `<tr><th scope="row"><button type="button" class="text-button"
-            data-action="recipe:${book.id}:${category.id}:${recipe.id}">${esc(recipe.name)}</button></th>
+            data-action="recipe:${book.id}:${category.id}:${recipe.id}">${esc(prep?.name||recipe.name)}</button>
+            <button type="button" class="text-button prep-row-edit" aria-label="Edytuj prep ${esc(prep?.name||recipe.name)}"
+              data-action="edit-table-prep:${book.id}:${category.id}:${recipe.id}">Edytuj</button></th>
             ${values.map(value=>`<td>${esc(value||'—')}</td>`).join('')}</tr>`;
         }).join('')}</tbody></table></div></section>` :
         `<div class="empty"><h2>${query?'Brak wyników':'Brak wpisów sous-vide'}</h2><p>
@@ -310,20 +315,25 @@
       </article>`;
   }
 
-  function prepForm(book,category,recipe) {
-    const prep = recipe?.prep || {};
+  function prepForm(book,category,recipe,fromTable=false) {
+    const existingRecipe = Boolean(recipe && recipe.kind!=='prep-sv');
+    const inferred = existingRecipe && !recipe.prep ? readPrepParameters(recipe) : null;
+    const prep = recipe?.prep || {
+      temperature:inferred?.temperature.replace(/\s*°C$/u,''),
+      duration:inferred?.duration
+    };
     showForm(recipe?'Edytuj prep SV':'Nowy prep SV',`<form id="edit-form" class="form">
       <div class="field"><label for="prep-name">Mięso i kawałek</label>
-        <input id="prep-name" name="name" required maxlength="90" value="${esc(recipe?.name||'')}"></div>
+        <input id="prep-name" name="name" required maxlength="90" value="${esc(prep.name||recipe?.name||'')}"></div>
       <div class="field"><label for="prep-before">Przygotowanie przed pakowaniem</label>
         <textarea id="prep-before" name="before" maxlength="2000">${esc(prep.before||'')}</textarea></div>
       <div class="field"><label for="prep-size">Wielkość porcji / grubość</label>
         <input id="prep-size" name="size" maxlength="120" value="${esc(prep.size||'')}"></div>
       <div class="field-row">
         <div class="field"><label for="prep-temp">Temperatura kąpieli (°C)</label>
-          <input id="prep-temp" name="temperature" inputmode="decimal" maxlength="6" required value="${esc(String(prep.temperature??'').replace('.',','))}"></div>
+          <input id="prep-temp" name="temperature" inputmode="decimal" maxlength="6" ${existingRecipe?'':'required'} value="${esc(String(prep.temperature??'').replace('.',','))}"></div>
         <div class="field"><label for="prep-duration">Czas SV</label>
-          <input id="prep-duration" name="duration" required maxlength="80" placeholder="np. 8 godz." value="${esc(prep.duration||'')}"></div>
+          <input id="prep-duration" name="duration" ${existingRecipe?'':'required'} maxlength="80" placeholder="np. 8 godz." value="${esc(prep.duration||'')}"></div>
       </div>
       <div class="field"><label for="prep-after">Po obróbce</label>
         <textarea id="prep-after" name="after" maxlength="2000">${esc(prep.after||'')}</textarea></div>
@@ -334,16 +344,22 @@
       const field = name=>String(data.get(name)||'').trim();
       const name = field('name'), duration = field('duration');
       const enteredTemperature = field('temperature');
-      const temperature = Number(enteredTemperature.replace(',','.'));
+      const temperature = enteredTemperature ? Number(enteredTemperature.replace(',','.')) : null;
       const error = form.querySelector('#prep-error');
-      if (!name || !duration || !/^\d+(?:[,.]\d{1,2})?$/.test(enteredTemperature) || temperature<=0 || temperature>100) {
-        error.textContent = 'Wpisz nazwę, czas i temperaturę kąpieli powyżej 0 i do 100 °C.';
+      const invalidTemperature = enteredTemperature &&
+        (!/^\d+(?:[,.]\d{1,2})?$/.test(enteredTemperature) || temperature<=0 || temperature>100);
+      if (!name || invalidTemperature || (!existingRecipe && (!duration || temperature===null))) {
+        error.textContent = existingRecipe
+          ? 'Podaj nazwę wpisu. Temperatura, jeśli ją podajesz, musi być powyżej 0 i do 100 °C.'
+          : 'Wpisz nazwę, czas i temperaturę kąpieli powyżej 0 i do 100 °C.';
         error.hidden = false;
         return;
       }
       const previous = category.recipes;
-      const entry = {...recipe,id:recipe?.id||id(),kind:'prep-sv',name,sections:[],
-        prep:{before:field('before'),size:field('size'),temperature,duration,after:field('after')}};
+      const updatedPrep = {before:field('before'),size:field('size'),temperature,duration,after:field('after')};
+      const entry = existingRecipe
+        ? {...recipe,prep:{...updatedPrep,name}}
+        : {...recipe,id:recipe?.id||id(),kind:'prep-sv',name,sections:[],prep:updatedPrep};
       category.recipes = recipe ? previous.map(item=>item.id===recipe.id?entry:item) : [...previous,entry];
       try {
         save();
@@ -354,7 +370,7 @@
         return;
       }
       closeForm();
-      navigate(`recipe:${book.id}:${category.id}:${entry.id}`);
+      navigate(fromTable?'prep-index':`recipe:${book.id}:${category.id}:${entry.id}`);
       toast('Prep zapisany');
     });
   }
@@ -1057,11 +1073,11 @@
     if(act==='edit-category'){const b=bookBy(p[0]),c=catBy(b,p[1]);return categoryForm(b,c)}
     if (act==='prep-index') return navigate('prep-index');
     if (act==='add-index-prep') return choosePrepCategory();
-    if (act==='edit-prep') {
+    if (act==='edit-prep' || act==='edit-table-prep') {
       const book = bookBy(p[0]);
       const category = catBy(book,p[1]);
       const entry = recipeBy(book,category,p[2]);
-      if (category && entry?.kind==='prep-sv') return prepForm(book,category,entry);
+      if (entry) return prepForm(book,category,entry,act==='edit-table-prep');
     }
     if(act==='new-recipe')return recipeForm(bookBy(p[0]),catBy(bookBy(p[0]),p[1]));
     if(act==='scan-photo')return document.querySelector('#recipe-photo').click();
