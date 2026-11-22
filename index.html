@@ -189,12 +189,10 @@
     output.hidden = !masses.length;
     if (!masses.length) return;
     const [min,max] = masses.reduce(([low,high],[start,end])=>[low+start,high+end],[0,0]);
-    const useKg = min >= 1000;
-    const divisor = useKg ? 1000 : 1;
     const number = new Intl.NumberFormat('pl',{maximumFractionDigits:3});
-    const low = number.format(min/divisor), high = number.format(max/divisor);
+    const low = number.format(min), high = number.format(max);
     const partial = masses.length < amounts.length ? ' (suma podanych mas)' : '';
-    output.textContent = `Masa etapu: ${low === high ? low : low + '–' + high} ${useKg ? 'kg' : 'g'}${partial}`;
+    output.textContent = `Masa etapu: ${low === high ? low : low + '–' + high} g${partial}`;
   }
 
   function parseRecipeText(value){
