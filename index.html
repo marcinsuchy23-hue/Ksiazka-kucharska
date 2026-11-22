@@ -21,7 +21,7 @@
     @media(max-width:600px){.shell{padding:0 16px 44px}.topbar{height:68px}.brand-name{font-size:14px}.top-actions .backup-label{display:none}.main{padding-top:26px}.page-head{align-items:flex-start;flex-direction:column}.page-head .primary-button{width:100%}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}.tile{min-height:158px;padding:15px;border-radius:19px}.tile-icon{width:39px;height:39px;border-radius:14px;margin-bottom:16px}.tile-title{font-size:19px}.tile-meta{font-size:12px}.tile-arrow{right:13px;top:15px}.recipe-tile{min-height:139px}.recipe-tile .tile-title{font-size:18px}.empty{padding:33px 17px}.toolbar{width:100%}.search{max-width:none}.recipe-cover{padding:22px;min-height:180px}.recipe-section{padding:19px}.amount{min-width:75px}.form-overlay{padding:0;align-items:end}.dialog{border-radius:25px 25px 0 0;max-height:94dvh;padding:22px 18px calc(22px + env(safe-area-inset-bottom))}.field-row{grid-template-columns:1fr}.ingredient-editor{grid-template-columns:minmax(70px,.8fr) 2fr auto;gap:6px}.ingredient-editor input{padding:9px 8px;font-size:14px}}
   </style>
   <style>@media(max-width:600px){.ocr-edit-row{grid-template-columns:1fr 1fr!important}.ocr-edit-row [data-ocr-value]{grid-column:1/-1}}</style>
-<style>@media print{body{background:#fff!important}.shell{max-width:none!important;padding:0!important;margin:0!important}.topbar,.crumbs,.footer-note,.portion-control,.recipe-tools,.recipe-view .top-actions{display:none!important}.main{padding:0!important}.recipe-screen{zoom:1!important}.recipe-view{max-width:none!important}.recipe-cover,.recipe-section{box-shadow:none!important;border:1px solid #ddd;break-inside:avoid}.recipe-cover{min-height:0;padding:16px;margin-bottom:10px}.recipe-section{padding:16px;margin-bottom:10px}.ingredient-list li{padding:5px 0}}</style>
+<style>@media print{body{background:#fff!important}.shell{max-width:none!important;padding:0!important;margin:0!important}.topbar,.crumbs,.footer-note,.portion-control,.recipe-tools,.recipe-view .top-actions,.bake-journal-button{display:none!important}.main{padding:0!important}.recipe-screen{zoom:1!important}.recipe-view{max-width:none!important}.recipe-cover,.recipe-section{box-shadow:none!important;border:1px solid #ddd;break-inside:avoid}.recipe-cover{min-height:0;padding:16px;margin-bottom:10px}.recipe-section{padding:16px;margin-bottom:10px}.ingredient-list li{padding:5px 0}}</style>
 <style>.recipe-tools{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;max-width:780px;margin:0 auto 12px;color:var(--muted);font-size:14px}.recipe-tools output{min-width:45px;text-align:center;font-weight:700;color:var(--green)}@media(max-width:600px){.recipe-tools{justify-content:flex-start}.recipe-tools>span{flex-basis:100%}}</style>
 <style>.recipe-photo{display:block;width:100%;max-height:360px;object-fit:cover;border-radius:18px;margin:0 0 18px}.recipe-photo-preview{max-width:100%;max-height:260px;object-fit:contain;border-radius:14px;background:#eeece4}.photo-preview-box{display:grid;gap:8px}</style>
 
@@ -32,8 +32,12 @@
       input,textarea,select {font-size:18px!important}
     }
     .recipe-actions {flex-wrap:wrap}
-    .recipe-notes-list {padding-left:20px}
-    .recipe-notes-list p {white-space:pre-wrap;margin:4px 0 12px}
+    .bake-journal {display:grid;gap:12px}
+    .bake-entry {border:1px solid var(--line);border-radius:13px;padding:12px 14px;background:var(--card)}
+    .bake-entry summary {cursor:pointer;color:var(--green);font-weight:700}
+    .bake-entry p {white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0 0}
+    .bake-entry img {display:block;max-width:100%;max-height:360px;border-radius:12px;margin-top:10px}
+    .bake-journal-button {display:flex;justify-content:flex-end;margin:14px 0 0}
     .cooking-nav {display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px}
     .cooking-nav a {text-decoration:none}
     .cooking-ingredients {list-style:none;padding:0}
@@ -165,34 +169,82 @@
     const base=Number(r.servings)||4;
     const ingredientRows=r.sections.flatMap((section,si)=>(section.ingredients||[]).map((ingredient,ii)=>({section:si,index:ii,sectionName:section.name||`Etap ${si+1}`,amount:ingredient.amount||'',name:ingredient.name||''})));
     const scaleable=ingredientRows.filter(item=>{const parsed=readQuantity(item.amount);return parsed&&Number.isFinite(parsed.value)&&parsed.value>0});
-    main.innerHTML=`<div class="recipe-screen" id="recipe-zoom-area">${crumb([{label:'Moja kuchnia',route:'home'},{label:b.name,route:`book:${b.id}`},{label:c.name,route:`category:${b.id}:${c.id}`},{label:r.name}])}<div class="recipe-tools"><span>Widok przepisu</span><button type="button" class="quiet-button" id="recipe-zoom-out" aria-label="Pomniejsz przepis">−</button><output id="recipe-zoom-level">100%</output><button type="button" class="quiet-button" id="recipe-zoom-in" aria-label="Powiększ przepis">＋</button><button type="button" class="quiet-button" id="recipe-print">Zapisz / drukuj PDF</button></div><article class="recipe-view"><header class="recipe-cover">${r.photo?`<img class="recipe-photo" src="${esc(r.photo)}" alt="Zdjęcie przepisu">`:''}<div class="eyebrow">${esc(c.name)} · ${esc(b.name)}</div><h1 class="heading">${esc(r.name)}</h1>${r.description?`<p class="recipe-description">${esc(r.description)}</p>`:''}</header><section class="portion-control" aria-label="Przeliczanie przepisu"><div class="calc-field"><label for="scale-scope">Przelicz</label><select id="scale-scope"><option value="all">Cały przepis</option>${r.sections.map((s,i)=>`<option value="${i}">Tylko: ${esc(s.name||`Etap ${i+1}`)}</option>`).join('')}</select></div><div class="calc-field"><label for="scale-mode">Według</label><select id="scale-mode"><option value="portions">Liczby porcji</option><option value="ingredient">Ilości składnika</option><option value="mass">Docelowej masy</option><option value="pans">Liczby foremek</option></select></div><div class="calc-field portion-field" id="portion-setting"><label for="portion-count">Porcje</label><input id="portion-count" type="number" min="1" max="100" step="1" value="${base}"></div><div id="ingredient-setting" class="calc-field" hidden><label for="scale-ingredient">Składnik</label><select id="scale-ingredient"></select></div><div id="target-setting" class="calc-field" hidden><label for="scale-target">Nowa ilość</label><input id="scale-target" type="text" placeholder="np. 300 g"></div><div class="calc-field" id="target-mass-setting" hidden><label for="target-mass">Docelowa masa etapu (g)</label><input id="target-mass" type="number" min="1" inputmode="decimal"></div><div class="calc-field" id="pan-count-setting" hidden><label for="pan-count">Liczba foremek</label><input id="pan-count" type="number" min="1" step="1" inputmode="numeric"></div><details class="baking-settings"><summary>Foremki i limit robota</summary><div class="baking-fields"><div class="calc-field"><label for="pan-mass">Ciasto na foremkę (g)</label><input id="pan-mass" type="number" min="1" inputmode="decimal"></div><div class="calc-field"><label for="mixer-limit">Limit masy ciasta robota (g)</label><input id="mixer-limit" type="number" min="1" inputmode="decimal"></div></div></details><p id="baking-summary" class="calc-note" aria-live="polite" hidden></p><p id="scale-note" class="calc-note">Wybierz, czy przeliczać cały przepis, czy tylko jeden etap.</p></section><div class="top-actions recipe-actions" style="justify-content:flex-end;margin:0 0 14px">${r.sections.length ? `<button type="button" class="quiet-button" data-action="cook-recipe:${b.id}:${c.id}:${r.id}">Tryb gotowania</button>` : ''}<button class="quiet-button" data-action="edit-recipe:${b.id}:${c.id}:${r.id}">Edytuj przepis</button><button type="button" class="quiet-button" data-action="copy-recipe:${b.id}:${c.id}:${r.id}">Skopiuj przepis</button><button class="danger-button" data-action="delete-recipe:${b.id}:${c.id}:${r.id}">Usuń</button></div>${r.sections.map((s,i)=>`<section class="recipe-section" data-scale-section="${i}"><h2>${esc(s.name||`Etap ${i+1}`)}</h2>${s.description?`<p class="section-description">${esc(s.description)}</p>`:''}${s.ingredients?.length?`<div class="label">Składniki</div><ul class="ingredient-list">${s.ingredients.map((x,j)=>`<li><span class="amount" data-base-amount="${esc(x.amount||'')}" data-scale-section="${i}" data-scale-item="${i}:${j}">${esc(x.amount||'')}</span><span>${esc(x.name||'')}${r.bakerPercentages?`<small class="baker-percent" data-baker-percent hidden></small>`:''}</span></li>`).join('')}</ul>`:''}${s.instructions?`<div class="label" style="margin-bottom:8px">Jak przygotować</div><p class="instructions">${esc(s.instructions)}</p>`:''}${r.bakerPercentages?`<p class="baker-summary" data-baker-summary hidden></p>`:''}<p class="stage-mass" data-stage-mass hidden></p></section>`).join('')}${recipeNotes(b,c,r)}</article></div>`;
+    main.innerHTML=`<div class="recipe-screen" id="recipe-zoom-area">${crumb([{label:'Moja kuchnia',route:'home'},{label:b.name,route:`book:${b.id}`},{label:c.name,route:`category:${b.id}:${c.id}`},{label:r.name}])}<div class="recipe-tools"><span>Widok przepisu</span><button type="button" class="quiet-button" id="recipe-zoom-out" aria-label="Pomniejsz przepis">−</button><output id="recipe-zoom-level">100%</output><button type="button" class="quiet-button" id="recipe-zoom-in" aria-label="Powiększ przepis">＋</button><button type="button" class="quiet-button" id="recipe-print">Zapisz / drukuj PDF</button></div><article class="recipe-view"><header class="recipe-cover">${r.photo?`<img class="recipe-photo" src="${esc(r.photo)}" alt="Zdjęcie przepisu">`:''}<div class="eyebrow">${esc(c.name)} · ${esc(b.name)}</div><h1 class="heading">${esc(r.name)}</h1>${r.description?`<p class="recipe-description">${esc(r.description)}</p>`:''}</header><section class="portion-control" aria-label="Przeliczanie przepisu"><div class="calc-field"><label for="scale-scope">Przelicz</label><select id="scale-scope"><option value="all">Cały przepis</option>${r.sections.map((s,i)=>`<option value="${i}">Tylko: ${esc(s.name||`Etap ${i+1}`)}</option>`).join('')}</select></div><div class="calc-field"><label for="scale-mode">Według</label><select id="scale-mode"><option value="portions">Liczby porcji</option><option value="ingredient">Ilości składnika</option><option value="mass">Docelowej masy</option><option value="pans">Liczby foremek</option></select></div><div class="calc-field portion-field" id="portion-setting"><label for="portion-count">Porcje</label><input id="portion-count" type="number" min="1" max="100" step="1" value="${base}"></div><div id="ingredient-setting" class="calc-field" hidden><label for="scale-ingredient">Składnik</label><select id="scale-ingredient"></select></div><div id="target-setting" class="calc-field" hidden><label for="scale-target">Nowa ilość</label><input id="scale-target" type="text" placeholder="np. 300 g"></div><div class="calc-field" id="target-mass-setting" hidden><label for="target-mass">Docelowa masa etapu (g)</label><input id="target-mass" type="number" min="1" inputmode="decimal"></div><div class="calc-field" id="pan-count-setting" hidden><label for="pan-count">Liczba foremek</label><input id="pan-count" type="number" min="1" step="1" inputmode="numeric"></div><details class="baking-settings"><summary>Foremki i limit robota</summary><div class="baking-fields"><div class="calc-field"><label for="pan-mass">Ciasto na foremkę (g)</label><input id="pan-mass" type="number" min="1" inputmode="decimal"></div><div class="calc-field"><label for="mixer-limit">Limit masy ciasta robota (g)</label><input id="mixer-limit" type="number" min="1" inputmode="decimal"></div></div></details><p id="baking-summary" class="calc-note" aria-live="polite" hidden></p><p id="scale-note" class="calc-note">Wybierz, czy przeliczać cały przepis, czy tylko jeden etap.</p></section><div class="top-actions recipe-actions" style="justify-content:flex-end;margin:0 0 14px">${r.sections.length ? `<button type="button" class="quiet-button" data-action="cook-recipe:${b.id}:${c.id}:${r.id}">Tryb gotowania</button>` : ''}<button class="quiet-button" data-action="edit-recipe:${b.id}:${c.id}:${r.id}">Edytuj przepis</button><button type="button" class="quiet-button" data-action="copy-recipe:${b.id}:${c.id}:${r.id}">Skopiuj przepis</button><button class="danger-button" data-action="delete-recipe:${b.id}:${c.id}:${r.id}">Usuń</button></div>${r.sections.map((s,i)=>`<section class="recipe-section" data-scale-section="${i}"><h2>${esc(s.name||`Etap ${i+1}`)}</h2>${s.description?`<p class="section-description">${esc(s.description)}</p>`:''}${s.ingredients?.length?`<div class="label">Składniki</div><ul class="ingredient-list">${s.ingredients.map((x,j)=>`<li><span class="amount" data-base-amount="${esc(x.amount||'')}" data-scale-section="${i}" data-scale-item="${i}:${j}">${esc(x.amount||'')}</span><span>${esc(x.name||'')}${r.bakerPercentages?`<small class="baker-percent" data-baker-percent hidden></small>`:''}</span></li>`).join('')}</ul>`:''}${s.instructions?`<div class="label" style="margin-bottom:8px">Jak przygotować</div><p class="instructions">${esc(s.instructions)}</p>`:''}${r.bakerPercentages?`<p class="baker-summary" data-baker-summary hidden></p>`:''}<p class="stage-mass" data-stage-mass hidden></p></section>`).join('')}<div class="bake-journal-button"><button type="button" class="quiet-button" data-action="journal-recipe:${b.id}:${c.id}:${r.id}">Dziennik wypieków</button></div></article></div>`;
     setupRecipeScaling(r,base,scaleable);let zoom=Number(r.viewZoom)||1;const zoomArea=document.querySelector("#recipe-zoom-area"),zoomLevel=document.querySelector("#recipe-zoom-level");const setZoom=(value,persist=true)=>{zoom=Math.min(1.4,Math.max(.4,Math.round(value*10)/10));zoomArea.style.setProperty("--recipe-zoom",zoom);zoomLevel.textContent=Math.round(zoom*100)+"%";if(persist){r.viewZoom=zoom;save()}};setZoom(zoom,false);document.querySelector("#recipe-zoom-out").addEventListener("click",()=>setZoom(zoom-.1));document.querySelector("#recipe-zoom-in").addEventListener("click",()=>setZoom(zoom+.1));document.querySelector("#recipe-print").addEventListener("click",()=>window.print());
   }
-  function recipeNotes(book,category,recipe) {
-    const notes = recipe.notes || [];
-    return `<section class="recipe-section"><h2>Notatki po wypieku</h2>
-      ${notes.length ? `<ul class="recipe-notes-list">${notes.map(note=>
-        `<li><time datetime="${esc(note.date)}">${esc(new Date(note.date).toLocaleDateString('pl-PL'))}</time><p>${esc(note.text)}</p></li>`).join('')}</ul>` : ''}
-      <button type="button" class="quiet-button" data-action="note-recipe:${book.id}:${category.id}:${recipe.id}">Dodaj notatkę</button></section>`;
+  function openBakeJournal(recipe) {
+    const entries = [...(recipe.notes||[])].sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+    showForm('Dziennik wypieków',`<div class="bake-journal">
+      <p class="scan-help">${esc(recipe.name)}</p>
+      <div><button type="button" class="primary-button" id="add-bake-entry">Dodaj wypiek</button></div>
+      ${entries.length ? entries.map(entry=>{
+        const date = new Date(entry.date);
+        const label = Number.isNaN(date.getTime()) ? 'Wpis' : date.toLocaleDateString('pl-PL');
+        const duration = entry.proofMinutes
+          ? ` · Wyrastanie: ${esc(entry.proofMinutes)} min` : '';
+        return `<details class="bake-entry"><summary><time datetime="${esc(entry.date||'')}">${esc(label)}</time>${duration}${entry.photo?' · zdjęcie':''}</summary>
+          ${entry.text?`<p>${esc(entry.text)}</p>`:''}
+          ${entry.photo?`<img src="${esc(entry.photo)}" alt="Zdjęcie wypieku" loading="lazy">`:''}</details>`;
+      }).join('') : '<p class="scan-help">Brak wpisów.</p>'}
+    </div>`);
+    document.querySelector('#add-bake-entry').addEventListener('click',()=>addBakeEntry(recipe));
   }
 
-  function addRecipeNote(recipe) {
-    showForm('Dodaj notatkę',`<form id="edit-form" class="form">
-      <div class="field"><label for="recipe-note-text">Notatka po wypieku</label>
-        <textarea id="recipe-note-text" name="note" maxlength="2000" required></textarea></div>
-      <div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button>
-        <button class="primary-button">Zapisz notatkę</button></div></form>`,data=>{
+  function addBakeEntry(recipe) {
+    showForm('Dodaj wypiek',`<form id="edit-form" class="form">
+      <div class="field"><label for="bake-proof-time">Czas wyrastania (min)</label>
+        <input id="bake-proof-time" name="proofMinutes" type="number" min="1" step="1" inputmode="numeric"></div>
+      <div class="field"><label for="bake-photo">Zdjęcie wypieku lub przekroju</label>
+        <input id="bake-photo" name="photo" type="file" accept="image/*"></div>
+      <div class="field"><label for="bake-note">Notatka</label>
+        <textarea id="bake-note" name="note" maxlength="2000"></textarea></div>
+      <p id="bake-error" class="scan-help" role="status" hidden></p>
+      <div class="form-actions"><button type="button" class="quiet-button" id="back-to-journal">Wróć</button>
+        <button class="primary-button" type="submit">Zapisz wypiek</button></div></form>`,async (data,form)=>{
       const text = String(data.get('note')).trim();
-      if (!text) return;
-      recipe.notes = [...(recipe.notes||[]),{text,date:new Date().toISOString()}];
-      save();
-      closeForm();
-      const existing = main.querySelector('[data-action^="note-recipe:"]').closest('section');
-      const book = bookBy(route.book);
-      const category = catBy(book,route.category);
-      existing.outerHTML = recipeNotes(book,category,recipe);
-      toast('Notatka zapisana');
+      const proofMinutes = Number(data.get('proofMinutes'));
+      const file = form.querySelector('#bake-photo').files[0];
+      const button = form.querySelector('[type=submit]');
+      const message = form.querySelector('#bake-error');
+      if (button.disabled) return;
+      function showError(text) {
+        message.textContent = text;
+        message.hidden = false;
+      }
+      if (!text && !proofMinutes && !file) {
+        showError('Dodaj notatkę, czas wyrastania lub zdjęcie.');
+        return;
+      }
+      button.disabled = true;
+      message.hidden = true;
+      try {
+        let photo;
+        try {
+          if (file) photo = await compressRecipePhoto(file,720,.7);
+        } catch {
+          showError('Nie udało się wczytać zdjęcia. Wybierz inne lub zapisz wpis bez zdjęcia.');
+          return;
+        }
+        if (!form.isConnected) return;
+        const previous = recipe.notes;
+        recipe.notes = [
+          ...(previous||[]),
+          {text,date:new Date().toISOString(),...(proofMinutes?{proofMinutes}:{}),...(photo?{photo}:{})}
+        ];
+        try {
+          save();
+        } catch {
+          recipe.notes = previous;
+          showError('Nie udało się zapisać wpisu. Jeśli dodałeś zdjęcie, spróbuj zapisać wpis bez niego.');
+          return;
+        }
+        openBakeJournal(recipe);
+        toast('Wypiek zapisany');
+      } finally {
+        button.disabled = false;
+      }
     });
+    document.querySelector('#back-to-journal').addEventListener('click',()=>openBakeJournal(recipe));
   }
 
   function startCooking(recipe) {
@@ -757,7 +809,7 @@
     return {...(flour>0?{starterFlourGrams:flour}:{}),...(water>0?{starterWaterGrams:water}:{})};
   }
   function ingredientMarkup(x={}){return `<div class="ingredient-editor"><input data-amount aria-label="Ilość" value="${esc(x.amount||'')}" placeholder="Ilość"><input data-ing-name aria-label="Składnik" value="${esc(x.name||'')}" placeholder="np. mąki"><button class="remove-small" type="button" data-remove-ingredient aria-label="Usuń składnik">×</button></div>`}
-  function compressRecipePhoto(file){return new Promise((resolve,reject)=>{const url=URL.createObjectURL(file),img=new Image();img.onload=()=>{try{const max=1400,scale=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);URL.revokeObjectURL(url);resolve(canvas.toDataURL('image/jpeg',.78))}catch(e){URL.revokeObjectURL(url);reject(e)}};img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Invalid image'))};img.src=url})}
+  function compressRecipePhoto(file,max=1400,quality=.78){return new Promise((resolve,reject)=>{const url=URL.createObjectURL(file),img=new Image();img.onload=()=>{try{const scale=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);URL.revokeObjectURL(url);resolve(canvas.toDataURL('image/jpeg',quality))}catch(e){URL.revokeObjectURL(url);reject(e)}};img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Invalid image'))};img.src=url})}
   function recipeForm(book,cat,old,draft=false){const existing=Boolean(old&&!draft);const initialServings=old?(Number(old.servings)||4):1;const sections=old?.sections?.length?old.sections:[{name:'',ingredients:[{amount:'',name:''}],instructions:''}];
     const content=`<form id="edit-form" class="form"><div class="field"><label for="recipe-name">Nazwa przepisu</label><input id="recipe-name" name="name" required maxlength="90" value="${esc(old?.name||'')}" placeholder="np. Sos pomidorowy"></div><div class="field"><label for="recipe-description">Krótki opis</label><textarea id="recipe-description" name="description" class="small-area" maxlength="280" placeholder="Kilka słów o tym przepisie…">${esc(old?.description||'')}</textarea></div><div class="field"><label for="recipe-photo-edit">Zdjęcie przepisu</label><input id="recipe-photo-edit" type="file" accept="image/*"><span class="scan-help">Możesz wybrać zdjęcie z galerii albo zrobić nowe aparatem.</span><div class="photo-preview-box" id="recipe-photo-preview">${old?.photo?`<img class="recipe-photo-preview" src="${esc(old.photo)}" alt="Podgląd zdjęcia przepisu">`:'<span class="scan-help">Nie dodano jeszcze zdjęcia.</span>'}</div>${old?.photo?`<label><input type="checkbox" name="removePhoto"> Usuń obecne zdjęcie przy zapisie</label>`:''}</div>${tileStyleFields(old)}<div class="field"><label for="recipe-servings">Podstawowa liczba porcji</label><input id="recipe-servings" name="servings" type="number" min="1" max="100" step="1" value="${initialServings}"><span class="scan-help">Na tej podstawie aplikacja przeliczy ilości składników.</span></div><div class="field"><label><input type="checkbox" name="bakerPercentages" ${old?.bakerPercentages?'checked':''}> Procenty piekarskie</label><span class="scan-help">Dla pieczywa: wpisuj nazwy składników od „Mąka” lub „Woda”. Jeśli używasz zaczynu, podaj w etapie masę mąki i wody zawartą w wykorzystanej ilości zaczynu.</span></div><div id="sections">${sections.map((s,i)=>sectionMarkup(s,i,Boolean(old?.bakerPercentages))).join('')}</div><button type="button" class="add-link" id="add-section">＋ Dodaj część / etap</button><div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button><button class="primary-button">${existing?'Zapisz zmiany':'Zapisz przepis'}</button></div></form>`;
     showForm(existing?'Edytuj przepis':'Nowy przepis',content,async(fd,form)=>{const name=String(fd.get('name')).trim();if(!name)return;const blocks=[...form.querySelectorAll('[data-section]')];const parsed=blocks.map(el=>({name:el.querySelector('[data-s-name]').value.trim(),...(el.dataset.description?{description:el.dataset.description}:{}),instructions:el.querySelector('[data-s-instructions]').value.trim(),...readStarterMass(el),ingredients:[...el.querySelectorAll('.ingredient-editor')].map(row=>({amount:row.querySelector('[data-amount]').value.trim(),name:row.querySelector('[data-ing-name]').value.trim()})).filter(x=>x.name||x.amount)})).filter(s=>s.name||s.description||s.instructions||s.ingredients.length);let photo=old?.photo||'';const photoInput=form.querySelector('#recipe-photo-edit'),photoFile=photoInput?.files?.[0];if(fd.get('removePhoto')==='on')photo='';else if(photoFile){try{photo=await compressRecipePhoto(photoFile)}catch(err){toast('Nie udało się wczytać zdjęcia. Spróbuj wybrać je ponownie.');return}}const recipe={id:existing?old.id:id(),name,photo,...(old?.viewZoom?{viewZoom:old.viewZoom}:{}),tileTitleSize:Number(fd.get('tileTitleSize'))||26,tileTitleWeight:Number(fd.get('tileTitleWeight'))||700,description:String(fd.get('description')).trim(),bakerPercentages:fd.get('bakerPercentages')==='on',servings:Math.min(100,Math.max(1,Number(fd.get('servings'))||initialServings)),sections:parsed};if(existing)Object.assign(old,recipe);else cat.recipes.push(recipe);save();closeForm();if(draft&&old?.id)navigate(`recipe:${book.id}:${cat.id}:${recipe.id}`);else render();toast(existing?'Przepis zaktualizowany':'Przepis zapisany')});
@@ -791,12 +843,12 @@
     if(act==='new-recipe')return recipeForm(bookBy(p[0]),catBy(bookBy(p[0]),p[1]));
     if(act==='scan-photo')return document.querySelector('#recipe-photo').click();
     if(act==='edit-recipe')return recipeForm(bookBy(p[0]),catBy(bookBy(p[0]),p[1]),recipeBy(bookBy(p[0]),catBy(bookBy(p[0]),p[1]),p[2]));
-    if (act==='note-recipe' || act==='cook-recipe') {
+    if (act==='journal-recipe' || act==='cook-recipe') {
       const book = bookBy(p[0]);
       const category = catBy(book,p[1]);
       const recipe = recipeBy(book,category,p[2]);
       if (!recipe) return;
-      return act==='note-recipe' ? addRecipeNote(recipe) : startCooking(recipe);
+      return act==='journal-recipe' ? openBakeJournal(recipe) : startCooking(recipe);
     }
     if(act==='copy-recipe'){
       const book = bookBy(p[0]);
