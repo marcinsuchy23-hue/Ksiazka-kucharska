@@ -84,23 +84,23 @@
   function readQuantity(text){let m=String(text||'').match(/^\s*(\d+)\s+(\d+)\/(\d+)(.*)$/);if(m)return{value:Number(m[1])+Number(m[2])/Number(m[3]),tail:m[4]};m=String(text||'').match(/^\s*(\d+)\/(\d+)(.*)$/);if(m)return{value:Number(m[1])/Number(m[2]),tail:m[3]};m=String(text||'').match(/^\s*(\d+)?\s*([¼½¾⅓⅔⅛⅜⅝⅞])(.*)$/);if(m)return{value:Number(m[1]||0)+fractions[m[2]],tail:m[3]};m=String(text||'').match(/^\s*(\d+(?:[,.]\d+)?)(.*)$/);return m?{value:Number(m[1].replace(',','.')),tail:m[2]}:null}
   function scaleAmount(value,target,base){if(base<=0)return value;const range=String(value||'').match(/^\s*(\d+(?:[,.]\d+)?)\s*([-–—])\s*(\d+(?:[,.]\d+)?)(.*)$/);const factor=target/base;const fmt=n=>String(Math.round(n*factor*100)/100).replace('.',',');if(range)return `${fmt(Number(range[1].replace(',','.')))}${range[2]}${fmt(Number(range[3].replace(',','.')))}${range[4]}`;const parsed=readQuantity(value);if(!parsed||!Number.isFinite(parsed.value))return value;return `${fmt(parsed.value)}${parsed.tail}`}
   function parseRecipeText(value){
-    let raw=String(value||'').replace(/\\r/g,'\\n');
-    raw=raw.replace(/\\b(?:lista\\s+)?składniki\\s*:?/giu,'\\nSkładniki\\n').replace(/\\b(?:sposób\\s+przygotowania|przygotowanie|wykonanie|instrukcja)\\s*:?/giu,'\\nPrzygotowanie\\n');
-    raw=raw.replace(/([^\\n])\\s+(?=\\d+(?:[,.]\\d+)?\\s*(?:g|kg|mg|ml|l|dag|łyżecz(?:ka|ki|ek)|łyż(?:ka|ki|ek)|szkl(?:anka|anki|anek)|szt\\.?|opak\\.?|ząbk(?:i|ów))\\s+)/giu,'$1\\n');
-    const lines=raw.split(/\\n+/).map(s=>s.replace(/^\\s*[-•*·▪]+\\s*/,'').trim()).filter(Boolean);
-    const plain=s=>s.normalize('NFD').replace(/\\p{Diacritic}/gu,'').toLocaleLowerCase('pl').replace(/[:.]+$/,'').trim();
+    let raw=String(value||'').replace(/\r/g,'\n');
+    raw=raw.replace(/\b(?:lista\s+)?składniki\s*:?/giu,'\nSkładniki\n').replace(/\b(?:sposób\s+przygotowania|przygotowanie|wykonanie|instrukcja)\s*:?/giu,'\nPrzygotowanie\n');
+    raw=raw.replace(/([^\n])\s+(?=\d+(?:[,.]\d+)?\s*(?:g|kg|mg|ml|l|dag|łyżecz(?:ka|ki|ek)|łyż(?:ka|ki|ek)|szkl(?:anka|anki|anek)|szt\.?|opak\.?|ząbk(?:i|ów))\s+)/giu,'$1\n');
+    const lines=raw.split(/\n+/).map(s=>s.replace(/^\s*[-•*·▪]+\s*/,'').trim()).filter(Boolean);
+    const plain=s=>s.normalize('NFD').replace(/\p{Diacritic}/gu,'').toLocaleLowerCase('pl').replace(/[:.]+$/,'').trim();
     const isIng=s=>/^(skladniki|lista skladnikow|potrzebne skladniki|ingredients)$/.test(plain(s));
     const isMethod=s=>/^(sposob przygotowania|przygotowanie|wykonanie|instrukcja|method|directions)$/.test(plain(s));
-    const quantity=/^(\\d+(?:[,.]\\d+)?|\\d+\\s*\\/\\s*\\d+|\\d+\\s+\\d+\\s*\\/\\s*\\d+)(?:\\s*(?:g|kg|mg|ml|l|dag|łyżecz(?:ka|ki|ek)|łyż(?:ka|ki|ek)|szkl(?:anka|anki|anek)|szt\\.?|opak\\.?|ząbk(?:i|ów)?|puszk(?:a|i))?)\\s+(.+)$/iu;
+    const quantity=/^(\d+(?:[,.]\d+)?|\d+\s*\/\s*\d+|\d+\s+\d+\s*\/\s*\d+)(?:\s*(?:g|kg|mg|ml|l|dag|łyżecz(?:ka|ki|ek)|łyż(?:ka|ki|ek)|szkl(?:anka|anki|anek)|szt\.?|opak\.?|ząbk(?:i|ów)?|puszk(?:a|i))?)\s+(.+)$/iu;
     const isQuantity=s=>quantity.test(s);
-    const isStep=s=>/^(?:\\d+[.)]\\s*|(?:następnie|potem|wtedy|na koniec|wymieszaj|dodaj|wlej|wsyp|pokrój|gotuj|piecz|odstaw|ubij|połącz|zagnieć|przełóż|podawaj)\\b)/iu.test(s);
+    const isStep=s=>/^(?:\d+[.)]\s*|(?:następnie|potem|wtedy|na koniec|wymieszaj|dodaj|wlej|wsyp|pokrój|gotuj|piecz|odstaw|ubij|połącz|zagnieć|przełóż|podawaj)\b)/iu.test(s);
     const title=lines.shift()||'Przepis ze zdjęcia';let ingAt=-1,methodAt=-1;
     lines.forEach((line,i)=>{if(isIng(line)&&ingAt<0)ingAt=i;if(isMethod(line)&&methodAt<0)methodAt=i});
     const ingredients=[],instructions=[];
     const add=line=>{const m=line.match(quantity);ingredients.push({amount:m?m[1].trim():'',name:(m?m[2]:line).trim()})};
     if(ingAt>=0){
       const end=methodAt>ingAt?methodAt:lines.length;
-      for(const line of lines.slice(ingAt+1,end))if(!isIng(line)&&!isMethod(line))line.split(/[;,]\\s*(?=\\d+(?:[,.]\\d+)?(?:\\s*(?:g|kg|ml|l|dag|łyż|szkl|szt|opak|ząbk))?\\s+)/iu).filter(Boolean).forEach(add);
+      for(const line of lines.slice(ingAt+1,end))if(!isIng(line)&&!isMethod(line))line.split(/[;,]\s*(?=\d+(?:[,.]\d+)?(?:\s*(?:g|kg|ml|l|dag|łyż|szkl|szt|opak|ząbk))?\s+)/iu).filter(Boolean).forEach(add);
     }else{
       for(const line of lines)if(isQuantity(line))add(line);
       if(ingredients.length>=2){}
@@ -110,7 +110,7 @@
     else if(ingAt>=0)instructions.push(...lines.slice(ingAt+1).filter(line=>!isIng(line)&&!isMethod(line)));
     else if(ingredients.length)instructions.push(...lines.filter(line=>!isQuantity(line)));
     else instructions.push(...lines.filter(isStep));
-    const sections=[];if(ingredients.length)sections.push({name:'Składniki',ingredients,instructions:''});if(instructions.length)sections.push({name:'Przygotowanie',ingredients:[{amount:'',name:''}],instructions:instructions.join('\\n')});
+    const sections=[];if(ingredients.length)sections.push({name:'Składniki',ingredients,instructions:''});if(instructions.length)sections.push({name:'Przygotowanie',ingredients:[{amount:'',name:''}],instructions:instructions.join('\n')});
     if(!sections.length)sections.push({name:'Składniki',ingredients:[{amount:'',name:lines[0]||''}],instructions:''});
     const desc=lines.filter((line,i)=>i!==ingAt&&i!==methodAt&&!isIng(line)&&!isMethod(line)&&!isQuantity(line)&&!isStep(line));
     return{name:title,description:desc.length&&desc[0].length<160?desc[0]:'',servings:4,sections}
