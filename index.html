@@ -122,7 +122,41 @@
     const desc='';
     return{name,description:desc,servings:4,sections:cleaned}
   }
-  function reviewOcrText(text,book,cat){const content=`<form id="edit-form" class="form"><p class="scan-help">Sprawdź i popraw odczytany tekst, zanim utworzymy szkic przepisu. Rozpoznawanie działa na tym urządzeniu; zdjęcie nie jest wysyłane do serwisu.</p><div class="field"><label for="ocr-transcription">Tekst ze zdjęcia</label><textarea id="ocr-transcription" name="text" style="min-height:260px" required>${esc(text)}</textarea></div><div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button><button class="primary-button">Dalej: popraw przepis</button></div></form>`;showForm('Sprawdź tekst ze zdjęcia',content,fd=>{const draft=parseRecipeText(String(fd.get('text')||''));recipeForm(book,cat,draft,true)})}
+  function reviewOcrText(text,book,cat){
+    const parseAmount=line=>{const m=String(line||'').trim().match(/^(\d+(?:[,.]\d+)?(?:\s+\d+\/\d+)?|\d+\s*\/\s*\d+)\s*((?:g|kg|mg|ml|l|dag|łyżeczka|łyżeczki|łyżeczek|łyżka|łyżki|łyżek|szklanka|szklanki|szklanek|szt\.?|opak\.?|ząbki|ząbków|puszka|puszki)?)[\s.·-]+(.+)$/iu);return m?{amount:(m[1]+m[2]).trim(),name:m[3].trim()}:{amount:'',name:String(line||'').trim()}};
+    const isJunk=line=>/^\W*$/u.test(line)||line.length<2||/\b\d+\s*(?:tyg|tygodni|dni|godz)\b/iu.test(line);
+    let lines=String(text||'').replace(/\r/g,'').split(/\n+/).flatMap(line=>line.trim().split(/\s+(?=\d+(?:[,.]\d+)?\s*(?:g|kg|mg|ml|l|dag|łyż|szkl|szt|opak|ząbk)\.?\s+[a-ząćęłńóśźż])/iu)).map(x=>x.trim().replace(/^[\/|\\:;,. ]+|[| ]+$/g,'').trim()).filter(Boolean);
+    const first=lines.findIndex(line=>!isJunk(line));
+    const rows=lines.map((line,i)=>{
+      const qty=parseAmount(line);let type='instruction';
+      if(isJunk(line))type='ignore';
+      else if(i===first)type='title';
+      else if(/^(?:składniki|lista składników|ingredients)\s*:?\s*$/iu.test(line))type='ignore';
+      else if(/^(?:przygotowanie|sposób przygotowania|wykonanie)\s*:?\s*$/iu.test(line))type='instruction';
+      else if(/^\d+(?:[,.]\d+)?(?:\s*(?:g|kg|mg|ml|l|dag|łyż|szkl|szt|opak|ząbk))?\.?\s+.+/iu.test(line))type='ingredient';
+      else if(/^[\p{L}][\p{L}\s-]{1,38}:$/u.test(line))type='heading';
+      else if(i+1<lines.length&&/^\d+(?:[,.]\d+)?\s*(?:g|kg|ml|l|dag|łyż|szkl|szt|opak|ząbk)\.?/iu.test(lines[i+1]))type='heading';
+      const amount=type==='ingredient'?qty:{amount:'',name:line};
+      return{type,amount:amount.amount,value:amount.name};
+    });
+    const rowMarkup=row=>'<div class="ocr-edit-row" data-ocr-row style="display:grid;grid-template-columns:minmax(130px,.8fr) minmax(90px,.55fr) minmax(180px,2fr);gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)"><select data-ocr-type aria-label="Rodzaj tekstu"><option value="title" '+(row.type==='title'?'selected':'')+'>Tytuł</option><option value="heading" '+(row.type==='heading'?'selected':'')+'>Nazwa części</option><option value="ingredient" '+(row.type==='ingredient'?'selected':'')+'>Składnik</option><option value="description" '+(row.type==='description'?'selected':'')+'>Opis</option><option value="instruction" '+(row.type==='instruction'?'selected':'')+'>Przygotowanie</option><option value="ignore" '+(row.type==='ignore'?'selected':'')+'>Pomiń</option></select><input data-ocr-amount aria-label="Ilość" placeholder="Ilość" value="'+esc(row.amount||'')+'" style="'+(row.type==='ingredient'?'':'display:none')+'"><input data-ocr-value aria-label="Rozpoznany tekst" value="'+esc(row.value||'')+'" placeholder="Popraw rozpoznany tekst"></div>';
+    const content='<form id="edit-form" class="form"><p class="scan-help">Popraw tekst i wybierz dla każdej linii, gdzie ma trafić. Składniki mają osobne pola na ilość i nazwę. Możesz też dodać brakującą linię.</p><div id="ocr-rows">'+rows.map(rowMarkup).join('')+'</div><button type="button" class="add-link" id="ocr-add-row">＋ Dodaj linię</button><div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button><button class="primary-button">Utwórz przepis z wybranych pól</button></div></form>';
+    showForm('Popraw tekst ze zdjęcia',content,(fd,form)=>{
+      let name='',description='';const sections=[];let current=null;const ensureSection=()=>{if(!current){current={name:'Składniki',ingredients:[],instructions:''};sections.push(current)}return current};
+      for(const row of form.querySelectorAll('[data-ocr-row]')){
+        const type=row.querySelector('[data-ocr-type]').value,value=row.querySelector('[data-ocr-value]').value.trim(),amount=row.querySelector('[data-ocr-amount]').value.trim();if(!value||type==='ignore')continue;
+        if(type==='title'){if(!name)name=value}
+        else if(type==='description')description+=(description?' ':'')+value;
+        else if(type==='heading'){current={name:value.replace(/:$/,''),ingredients:[],instructions:''};sections.push(current)}
+        else if(type==='ingredient')ensureSection().ingredients.push({amount,name:value});
+        else if(type==='instruction'){const section=ensureSection();section.instructions+=(section.instructions?'\n':'')+value}
+      }
+      const draft={name:name||'Przepis ze zdjęcia',description:description.slice(0,280),servings:4,sections:sections.filter(x=>x.ingredients.length||x.instructions.trim())};if(!draft.sections.length)draft.sections=[{name:'Składniki',ingredients:[{amount:'',name:''}],instructions:''}];recipeForm(book,cat,draft,true)
+    });
+    const root=document.querySelector('#ocr-rows');
+    root.addEventListener('change',e=>{if(e.target.matches('[data-ocr-type]')){const amount=e.target.closest('[data-ocr-row]').querySelector('[data-ocr-amount]');amount.style.display=e.target.value==='ingredient'?'':'none'}});
+    document.querySelector('#ocr-add-row').addEventListener('click',()=>{root.insertAdjacentHTML('beforeend',rowMarkup({type:'ingredient',amount:'',value:''}));root.lastElementChild.querySelector('[data-ocr-type]').focus()})
+  }
   async function scanPhoto(file,book,cat){const imageUrl=URL.createObjectURL(file);showForm('Czytam zdjęcie',`<img class="scan-preview" src="${imageUrl}" alt="Wybrane zdjęcie przepisu"><div class="progress-track"><span style="width:30%"></span></div><p class="scan-status">Rozpoznaję tekst na urządzeniu… Przy pierwszym użyciu może to chwilę potrwać.</p><p class="scan-help" style="text-align:center">Najlepszy efekt dają wyraźne, równo ułożone zdjęcia drukowanego przepisu.</p>`);let worker;try{if(!window.Tesseract)throw new Error('Brak plików OCR');worker=await Tesseract.createWorker('pol',1,{workerPath:new URL('./worker.min.js',location.href).href,corePath:new URL('./tesseract-core-lstm.wasm.js',location.href).href,langPath:new URL('./',location.href).href,gzip:true});const result=await worker.recognize(file);const text=result.data.text||'';await worker.terminate();worker=null;URL.revokeObjectURL(imageUrl);if(!text.trim()){closeForm();toast('Nie udało się odczytać tekstu. Spróbuj wyraźniejszego zdjęcia.');return}reviewOcrText(text,book,cat)}catch(error){if(worker)try{await worker.terminate()}catch{}URL.revokeObjectURL(imageUrl);closeForm();toast('Nie udało się odczytać zdjęcia. Otwórz aplikację w przeglądarce przez plik startowy i spróbuj ponownie.')}}
   function navigate(value){const p=value.split(':');if(p[0]==='home'){route={type:'home'};search=''}else if(p[0]==='book'){route={type:'book',book:p[1]}}else if(p[0]==='category'){route={type:'category',book:p[1],category:p[2]};search=''}else if(p[0]==='recipe'){route={type:'recipe',book:p[1],category:p[2],recipe:p[3]}}render();window.scrollTo(0,0)}
   function toast(msg){const el=document.querySelector('#toast-root');el.innerHTML=`<div class="notice">${esc(msg)}</div>`;setTimeout(()=>el.innerHTML='',2600)}
