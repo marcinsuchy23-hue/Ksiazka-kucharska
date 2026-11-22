@@ -113,7 +113,30 @@
   const icons=['📖','🍃','🍲','🥣','🍰','🫙','🥗','🍋'];
   let state=load(), route={type:'home'}, search='', homeSearch='';
   const main=document.querySelector('#main');
-  function load(){try{const d=JSON.parse(localStorage.getItem(KEY));return d&&Array.isArray(d.books)?d:{books:[]}}catch{return{books:[]}}}
+  function normalizeCookbook(data) {
+    const prepEntries = [...(Array.isArray(data.prepEntries) ? data.prepEntries : [])];
+    const ids = new Set(prepEntries.map(entry=>entry.id));
+    for (const book of data.books) {
+      for (const category of book.categories) {
+        category.recipes = category.recipes.filter(recipe=>{
+          if (recipe.kind!=='prep-sv') return true;
+          if (!ids.has(recipe.id)) {
+            prepEntries.push(recipe);
+            ids.add(recipe.id);
+          }
+          return false;
+        });
+      }
+    }
+    return {books:data.books,prepEntries};
+  }
+  function load() {
+    try {
+      const data = JSON.parse(localStorage.getItem(KEY));
+      if (Array.isArray(data?.books)) return normalizeCookbook(data);
+    } catch {}
+    return {books:[],prepEntries:[]};
+  }
   function save(){localStorage.setItem(KEY,JSON.stringify(state))}
   function esc(s=''){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
   const bookBy=id=>state.books.find(x=>x.id===id), catBy=(b,id)=>b?.categories.find(x=>x.id===id), recipeBy=(b,c,id)=>c?.recipes.find(x=>x.id===id);
@@ -126,6 +149,7 @@
     if (appleTouchDevice && isInlineEditor(document.activeElement)) document.activeElement.blur();
     if(route.type==='home')return renderHome();
     if(route.type==='prep-index')return renderPrepIndex();
+    if(route.type==='prep-entry')return renderPrep(state.prepEntries.find(entry=>entry.id===route.id));
     if(route.type==='book')return renderBook();
     if(route.type==='category')return renderCategory();
     if(route.type==='recipe')return renderRecipe();
@@ -151,10 +175,11 @@
       }
       const matches = books.flatMap(book => book.categories.flatMap(category =>
         category.recipes.filter(recipe => recipeMatches(recipe,query)).map(recipe => ({book,category,recipe}))));
+      matches.push(...state.prepEntries.filter(recipe=>recipeMatches(recipe,query)).map(recipe=>({recipe})));
       results.innerHTML = matches.length ? `<div class="grid">${matches.map(({book,category,recipe},i) =>
         card(recipe.name,recipe.kind==='prep-sv'?
-          `${prepTemperature(recipe)} · ${recipe.prep.duration} · ${book.name} · ${category.name}`:`${book.name} · ${category.name}`,'📖',colors[i%colors.length],
-          `recipe:${book.id}:${category.id}:${recipe.id}`,'recipe-tile',recipe.photo||'',
+          `${prepTemperature(recipe)} · ${recipe.prep.duration} · Prep sous-vide`:`${book.name} · ${category.name}`,'📖',colors[i%colors.length],
+          book?`recipe:${book.id}:${category.id}:${recipe.id}`:`prep-entry:${recipe.id}`,'recipe-tile',recipe.photo||'',
           {size:recipe.tileTitleSize,weight:recipe.tileTitleWeight})).join('')}</div>` :
         '<div class="empty"><h2>Nie znaleziono przepisu</h2><p>Spróbuj wpisać inną nazwę.</p></div>';
     }
@@ -181,10 +206,8 @@
       const results = main.querySelector('#recipe-search-results');
       const refreshResults = () => {
         const q = search.trim().toLocaleLowerCase('pl');
-        const matches = c.recipes.filter(r=>recipeMatches(r,q));
-        const preps = matches.filter(r=>r.kind==='prep-sv');
-        const recipes = matches.filter(r=>r.kind!=='prep-sv');
-        results.innerHTML = matches.length ? prepTable(b,c,preps)+(recipes.length?`<div class="grid">${recipes.map((r,i)=>card(r.name,r.sections.length?`${r.sections.length} ${plural(r.sections.length,'etap','etapy','etapów')}`:'Otwórz przepis',['🍲','🥘','🍝','🥧','🥗','🍮'][i%6],colors[(i+1)%colors.length],`recipe:${b.id}:${c.id}:${r.id}`,'recipe-tile',r.photo||'',{size:r.tileTitleSize,weight:r.tileTitleWeight})).join('')}</div>`:''):`<div class="empty"><div class="empty-icon">⌕</div><h2>Nie znaleziono przepisu</h2><p>Spróbuj wpisać inną nazwę.</p></div>`;
+        const recipes = c.recipes.filter(r=>recipeMatches(r,q));
+        results.innerHTML = recipes.length ? `<div class="grid">${recipes.map((r,i)=>card(r.name,r.sections.length?`${r.sections.length} ${plural(r.sections.length,'etap','etapy','etapów')}`:'Otwórz przepis',['🍲','🥘','🍝','🥧','🥗','🍮'][i%6],colors[(i+1)%colors.length],`recipe:${b.id}:${c.id}:${r.id}`,'recipe-tile',r.photo||'',{size:r.tileTitleSize,weight:r.tileTitleWeight})).join('')}</div>`:`<div class="empty"><div class="empty-icon">⌕</div><h2>Nie znaleziono przepisu</h2><p>Spróbuj wpisać inną nazwę.</p></div>`;
       };
       input.addEventListener('input', () => {
         search = input.value;
@@ -194,7 +217,6 @@
     }
   }
   function renderRecipe(){const b=bookBy(route.book),c=catBy(b,route.category),r=recipeBy(b,c,route.recipe);if(!b||!c||!r){route={type:'home'};return renderHome()};
-    if (r.kind==='prep-sv') return renderPrep(b,c,r);
     const base=Number(r.servings)||4;
     const ingredientRows=r.sections.flatMap((section,si)=>(section.ingredients||[]).map((ingredient,ii)=>({section:si,index:ii,sectionName:section.name||`Etap ${si+1}`,amount:ingredient.amount||'',name:ingredient.name||''})));
     const scaleable=ingredientRows.filter(item=>{const parsed=readQuantity(item.amount);return parsed&&Number.isFinite(parsed.value)&&parsed.value>0});
@@ -229,14 +251,15 @@
   function renderPrepIndex() {
     const categories = state.books.flatMap(book=>book.categories.map(category=>({book,category})));
     const mentionsSousVide = value => /\bsv\b|\bsous[-–\s]+vide\b/iu.test(value);
-    const entries = categories.flatMap(({book,category})=>category.recipes.filter(recipe=>{
+    const existing = categories.flatMap(({book,category})=>category.recipes.filter(recipe=>{
       if (recipe.prep || mentionsSousVide(category.name)) return true;
       return mentionsSousVide([recipe.name,recipe.description,
         ...(recipe.sections||[]).flatMap(stage=>[stage.name,stage.instructions])].join(' '));
     }).map(recipe=>({book,category,recipe})));
+    const entries = [...state.prepEntries.map(recipe=>({recipe})),...existing];
     main.innerHTML = `<div class="recipe-screen" id="recipe-zoom-area">${crumb([{label:'Moja kuchnia',route:'home'},{label:'Prep sous-vide'}])}
       <section class="page-head"><h1 class="heading">Prep sous-vide</h1>
-        ${categories.length?'<button type="button" class="primary-button" data-action="add-index-prep">＋ Dodaj prep SV</button>':''}</section>
+        <button type="button" class="primary-button" data-action="add-index-prep">＋ Dodaj prep SV</button></section>
       <div class="toolbar"><input id="prep-index-search" class="search" type="search"
         aria-label="Szukaj prepu sous-vide" placeholder="Szukaj mięsa lub kawałka"></div>
       ${viewZoomControls('Widok tabeli')}
@@ -248,7 +271,7 @@
     function refresh() {
       const query = input.value.trim().toLocaleLowerCase('pl');
       const matches = entries.filter(({book,category,recipe})=>recipeMatches(recipe,query) ||
-        `${book.name} ${category.name}`.toLocaleLowerCase('pl').includes(query));
+        Boolean(book && `${book.name} ${category.name}`.toLocaleLowerCase('pl').includes(query)));
       results.innerHTML = matches.length ? `<section class="prep-list">
         <div class="prep-table-scroll" tabindex="0" role="region" aria-label="Tabela prep sous-vide">
         <table class="prep-index-table"><thead><tr>
@@ -261,13 +284,13 @@
           } : readPrepParameters(recipe);
           const values = [parameters?.temperature,parameters?.duration,prep?.size,prep?.notes];
           return `<tr><th scope="row"><button type="button" class="text-button"
-            data-action="recipe:${book.id}:${category.id}:${recipe.id}">${esc(prep?.name||recipe.name)}</button>
+            data-action="${book?`recipe:${book.id}:${category.id}:${recipe.id}`:`prep-entry:${recipe.id}`}">${esc(prep?.name||recipe.name)}</button>
             <button type="button" class="text-button prep-row-edit" aria-label="Edytuj prep ${esc(prep?.name||recipe.name)}"
-              data-action="edit-table-prep:${book.id}:${category.id}:${recipe.id}">Edytuj</button></th>
+              data-action="${book?`edit-table-prep:${book.id}:${category.id}:${recipe.id}`:`edit-index-prep:${recipe.id}`}">Edytuj</button></th>
             ${values.map(value=>`<td>${esc(value||'—')}</td>`).join('')}</tr>`;
         }).join('')}</tbody></table></div></section>` :
         `<div class="empty"><h2>${query?'Brak wyników':'Brak wpisów sous-vide'}</h2><p>
-          ${query?'Spróbuj wpisać inną nazwę.':categories.length?'Dodaj prep, aby zapisać pierwszą temperaturę i czas.':'Utwórz książkę i dział, aby dodać prep.'}</p></div>`;
+          ${query?'Spróbuj wpisać inną nazwę.':'Dodaj prep, aby zapisać pierwszą temperaturę i czas.'}</p></div>`;
     }
     input.addEventListener('input',refresh);
     refresh();
@@ -291,41 +314,15 @@
     if (pairs.size===1) return pairs.values().next().value;
   }
 
-  function choosePrepCategory() {
-    const categories = state.books.flatMap(book=>book.categories.map(category=>({book,category})));
-    if (categories.length===1) return prepForm(categories[0].book,categories[0].category);
-    showForm('Wybierz dział',`<form id="edit-form" class="form">
-      <div class="field"><label for="prep-category">Książka i dział</label><select id="prep-category" name="category">
-        ${categories.map(({book,category},i)=>`<option value="${i}" ${!i?'selected':''}>${esc(book.name)} · ${esc(category.name)}</option>`).join('')}
-      </select></div>
-      <div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button>
-        <button type="submit" class="primary-button">Dalej</button></div></form>`,data=>{
-      const selected = categories[Number(data.get('category'))];
-      if (selected) prepForm(selected.book,selected.category);
-    });
-  }
-
   function prepTemperature(recipe) {
     return new Intl.NumberFormat('pl',{maximumFractionDigits:2}).format(recipe.prep.temperature)+' °C';
   }
 
-  function prepTable(book,category,entries) {
-    if (!entries.length) return '';
-    return `<section class="prep-list"><h2>Prep sous-vide</h2>
-      <table><thead><tr><th scope="col">Mięso i kawałek</th><th scope="col">Temperatura</th><th scope="col">Czas</th></tr></thead>
-      <tbody>${entries.map(entry=>prepRow(book,category,entry)).join('')}</tbody></table></section>`;
-  }
-
-  function prepRow(book,category,entry) {
-    return `<tr><th scope="row"><button type="button" class="text-button"
-      data-action="recipe:${book.id}:${category.id}:${entry.id}">${esc(entry.name)}</button></th>
-      <td>${esc(prepTemperature(entry))}</td><td>${esc(entry.prep.duration)}</td></tr>`;
-  }
-
-  function renderPrep(book,category,recipe) {
+  function renderPrep(recipe) {
+    if (!recipe) return navigate('prep-index');
     const prep = recipe.prep;
-    main.innerHTML = `${crumb([{label:'Moja kuchnia',route:'home'},{label:book.name,route:`book:${book.id}`},
-      {label:category.name,route:`category:${book.id}:${category.id}`},{label:recipe.name}])}
+    main.innerHTML = `${crumb([{label:'Moja kuchnia',route:'home'},
+      {label:'Prep sous-vide',route:'prep-index'},{label:recipe.name}])}
       <article class="recipe-view">
         <header class="recipe-cover"><div class="eyebrow">Prep sous-vide</div><h1 class="heading">${esc(recipe.name)}</h1></header>
         <section class="recipe-section prep-numbers">
@@ -336,13 +333,13 @@
           <h2>Wielkość porcji / grubość</h2><p class="instructions">${esc(prep.size)}</p></section>`:''}
         ${prep.notes?`<section class="recipe-section"><h2>Uwagi</h2><p class="instructions">${esc(prep.notes)}</p></section>`:''}
         <div class="top-actions recipe-actions">
-          <button type="button" class="quiet-button" data-action="edit-prep:${book.id}:${category.id}:${recipe.id}">Edytuj prep</button>
-          <button type="button" class="danger-button" data-action="delete-recipe:${book.id}:${category.id}:${recipe.id}">Usuń</button>
+          <button type="button" class="quiet-button" data-action="edit-index-prep:${recipe.id}">Edytuj prep</button>
+          <button type="button" class="danger-button" data-action="delete-index-prep:${recipe.id}">Usuń</button>
         </div>
       </article>`;
   }
 
-  function prepForm(book,category,recipe,fromTable=false) {
+  function prepForm(recipe,category) {
     const existingRecipe = Boolean(recipe && recipe.kind!=='prep-sv');
     const inferred = existingRecipe && !recipe.prep ? readPrepParameters(recipe) : null;
     const prep = recipe?.prep || {
@@ -380,22 +377,25 @@
         error.hidden = false;
         return;
       }
-      const previous = category.recipes;
+      const previous = category ? category.recipes : state.prepEntries;
       const updatedPrep = {...recipe?.prep,size:field('size'),temperature,duration,notes:field('notes')};
       const entry = existingRecipe
         ? {...recipe,prep:{...updatedPrep,name}}
         : {...recipe,id:recipe?.id||id(),kind:'prep-sv',name,sections:[],prep:updatedPrep};
-      category.recipes = recipe ? previous.map(item=>item.id===recipe.id?entry:item) : [...previous,entry];
+      const updated = recipe ? previous.map(item=>item.id===recipe.id?entry:item) : [...previous,entry];
+      if (category) category.recipes = updated;
+      else state.prepEntries = updated;
       try {
         save();
       } catch {
-        category.recipes = previous;
+        if (category) category.recipes = previous;
+        else state.prepEntries = previous;
         error.textContent = 'Nie udało się zapisać wpisu na tym urządzeniu.';
         error.hidden = false;
         return;
       }
       closeForm();
-      navigate(fromTable?'prep-index':`recipe:${book.id}:${category.id}:${entry.id}`);
+      navigate('prep-index');
       toast('Prep zapisany');
     });
   }
@@ -905,7 +905,7 @@
     document.querySelector('#ocr-add-row').addEventListener('click',()=>{root.insertAdjacentHTML('beforeend',rowMarkup({type:'ingredient',amount:'',value:''}));root.lastElementChild.querySelector('[data-ocr-type]').focus()})
   }
   async function scanPhoto(file,book,cat){const imageUrl=URL.createObjectURL(file);showForm('Czytam zdjęcie',`<img class="scan-preview" src="${imageUrl}" alt="Wybrane zdjęcie przepisu"><div class="progress-track"><span style="width:30%"></span></div><p class="scan-status">Rozpoznaję tekst na urządzeniu… Przy pierwszym użyciu może to chwilę potrwać.</p><p class="scan-help" style="text-align:center">Najlepszy efekt dają wyraźne, równo ułożone zdjęcia drukowanego przepisu.</p>`);let worker;try{if(!window.Tesseract)throw new Error('Brak plików OCR');worker=await Tesseract.createWorker('pol',1,{workerPath:new URL('./worker.min.js',location.href).href,corePath:new URL('./tesseract-core-lstm.wasm.js',location.href).href,langPath:new URL('./',location.href).href,gzip:true});const result=await worker.recognize(file);const text=result.data.text||'';await worker.terminate();worker=null;URL.revokeObjectURL(imageUrl);if(!text.trim()){closeForm();toast('Nie udało się odczytać tekstu. Spróbuj wyraźniejszego zdjęcia.');return}const sourcePhoto=await compressRecipePhoto(file);reviewOcrText(text,book,cat,sourcePhoto)}catch(error){if(worker)try{await worker.terminate()}catch{}URL.revokeObjectURL(imageUrl);closeForm();toast('Nie udało się odczytać zdjęcia. Otwórz aplikację w przeglądarce przez plik startowy i spróbuj ponownie.')}}
-  function navigate(value){const p=value.split(':');if(p[0]==='home'){route={type:'home'};search=''}else if(p[0]==='prep-index'){route={type:'prep-index'}}else if(p[0]==='book'){route={type:'book',book:p[1]}}else if(p[0]==='category'){route={type:'category',book:p[1],category:p[2]};search=''}else if(p[0]==='recipe'){
+  function navigate(value){const p=value.split(':');if(p[0]==='home'){route={type:'home'};search=''}else if(p[0]==='prep-index'){route={type:'prep-index'}}else if(p[0]==='prep-entry'){if(route.type==='home')homeSearch='';route={type:'prep-entry',id:p[1]}}else if(p[0]==='book'){route={type:'book',book:p[1]}}else if(p[0]==='category'){route={type:'category',book:p[1],category:p[2]};search=''}else if(p[0]==='recipe'){
     if(route.type==='home')homeSearch='';
     route={type:'recipe',book:p[1],category:p[2],recipe:p[3]};
   }render();window.scrollTo(0,0)}
@@ -1097,12 +1097,28 @@
     if(act==='new-category'){const b=bookBy(p[0]);return categoryForm(b)}
     if(act==='edit-category'){const b=bookBy(p[0]),c=catBy(b,p[1]);return categoryForm(b,c)}
     if (act==='prep-index') return navigate('prep-index');
-    if (act==='add-index-prep') return choosePrepCategory();
-    if (act==='edit-prep' || act==='edit-table-prep') {
-      const book = bookBy(p[0]);
-      const category = catBy(book,p[1]);
-      const entry = recipeBy(book,category,p[2]);
-      if (entry) return prepForm(book,category,entry,act==='edit-table-prep');
+    if (act==='add-index-prep') return prepForm();
+    if (act==='prep-entry') return navigate(`prep-entry:${p[0]}`);
+    if (act==='edit-index-prep' || act==='delete-index-prep') {
+      const entry = state.prepEntries.find(item=>item.id===p[0]);
+      if (!entry) return;
+      if (act==='edit-index-prep') return prepForm(entry);
+      if (!confirm(`Usunąć prep „${entry.name}”?`)) return;
+      const previous = state.prepEntries;
+      state.prepEntries = previous.filter(item=>item.id!==entry.id);
+      try {save();} catch {
+        state.prepEntries = previous;
+        toast('Nie udało się usunąć wpisu.');
+        return;
+      }
+      navigate('prep-index');
+      toast('Prep usunięty');
+      return;
+    }
+    if (act==='edit-table-prep') {
+      const category = catBy(bookBy(p[0]),p[1]);
+      const entry = category?.recipes.find(item=>item.id===p[2]);
+      if (entry) return prepForm(entry,category);
     }
     if(act==='new-recipe')return recipeForm(bookBy(p[0]),catBy(bookBy(p[0]),p[1]));
     if(act==='scan-photo')return document.querySelector('#recipe-photo').click();
@@ -1126,7 +1142,7 @@
   document.querySelector('#home-link').addEventListener('click',e=>{e.preventDefault();navigate('home')});
   document.querySelector('#export-button').addEventListener('click',()=>{const blob=new Blob([JSON.stringify({format:'domowa-kuchnia',version:1,exportedAt:new Date().toISOString(),...state},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='moja-ksiazka-kucharska.json';a.click();URL.revokeObjectURL(a.href);toast('Kopia zapasowa pobrana')});
   document.querySelector('#import-button').addEventListener('click',()=>document.querySelector('#import-file').click());
-  document.querySelector('#import-file').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{const data=JSON.parse(await file.text());if(!data||!Array.isArray(data.books)||!data.books.every(b=>typeof b.name==='string'&&Array.isArray(b.categories)))throw new Error('bad');if(confirm('Wczytać kopię zapasową? Obecne przepisy zostaną zastąpione zawartością kopii.')){state={books:data.books};save();navigate('home');toast('Kopia zapasowa wczytana')}}catch{toast('Nie udało się wczytać tego pliku')}e.target.value=''});
+  document.querySelector('#import-file').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{const data=JSON.parse(await file.text());if(!data||!Array.isArray(data.books)||!data.books.every(b=>typeof b.name==='string'&&Array.isArray(b.categories)))throw new Error('bad');if(confirm('Wczytać kopię zapasową? Obecne przepisy zostaną zastąpione zawartością kopii.')){const imported=normalizeCookbook(data);localStorage.setItem(KEY,JSON.stringify(imported));state=imported;navigate('home');toast('Kopia zapasowa wczytana')}}catch{toast('Nie udało się wczytać tego pliku')}e.target.value=''});
   try { localStorage.removeItem('domowa-kuchnia-sync-key'); } catch {}
   if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(()=>{});
   render();
