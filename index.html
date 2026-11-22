@@ -51,7 +51,7 @@
     .prep-list th[scope=col] {color:var(--muted);font-size:13px}
     .prep-list button {text-align:left}
     .prep-table-scroll {overflow-x:auto}
-    .prep-index-table {min-width:320px}
+    .prep-index-table {min-width:420px}
     .prep-index-table td {vertical-align:top;white-space:pre-wrap}
     .prep-index-table th:first-child {min-width:100px}
     .prep-row-edit {display:block;font-size:13px;padding:6px 0}
@@ -164,7 +164,7 @@
   function recipeMatches(recipe,query) {
     const prep = recipe.prep;
     const values = [recipe.name,recipe.description];
-    if (prep) values.push('prep sous-vide',prep.name,prep.temperature == null ? '' : prepTemperature(recipe),prep.duration,prep.size);
+    if (prep) values.push('prep sous-vide',prep.name,prep.temperature == null ? '' : prepTemperature(recipe),prep.duration,prep.size,prep.notes);
     return values.join(' ').toLocaleLowerCase('pl').includes(query);
   }
   function renderBook(){const b=bookBy(route.book);if(!b){route={type:'home'};return renderHome()};
@@ -221,13 +221,13 @@
         <div class="prep-table-scroll" tabindex="0" role="region" aria-label="Tabela prep sous-vide">
         <table class="prep-index-table"><thead><tr>
           <th scope="col">Mięso i kawałek</th><th scope="col">Temperatura (°C)</th>
-          <th scope="col">Czas obróbki</th><th scope="col">Porcja / grubość</th>
+          <th scope="col">Czas obróbki</th><th scope="col">Porcja / grubość</th><th scope="col">Uwagi</th>
         </tr></thead><tbody>${matches.map(({book,category,recipe})=>{
           const prep = recipe.prep;
           const parameters = prep ? {
             temperature:prep.temperature == null ? '' : prepTemperature(recipe),duration:prep.duration
           } : readPrepParameters(recipe);
-          const values = [parameters?.temperature,parameters?.duration,prep?.size];
+          const values = [parameters?.temperature,parameters?.duration,prep?.size,prep?.notes];
           return `<tr><th scope="row"><button type="button" class="text-button"
             data-action="recipe:${book.id}:${category.id}:${recipe.id}">${esc(prep?.name||recipe.name)}</button>
             <button type="button" class="text-button prep-row-edit" aria-label="Edytuj prep ${esc(prep?.name||recipe.name)}"
@@ -302,6 +302,7 @@
         </section>
         ${prep.size?`<section class="recipe-section">
           <h2>Wielkość porcji / grubość</h2><p class="instructions">${esc(prep.size)}</p></section>`:''}
+        ${prep.notes?`<section class="recipe-section"><h2>Uwagi</h2><p class="instructions">${esc(prep.notes)}</p></section>`:''}
         <div class="top-actions recipe-actions">
           <button type="button" class="quiet-button" data-action="edit-prep:${book.id}:${category.id}:${recipe.id}">Edytuj prep</button>
           <button type="button" class="danger-button" data-action="delete-recipe:${book.id}:${category.id}:${recipe.id}">Usuń</button>
@@ -327,6 +328,8 @@
         <div class="field"><label for="prep-duration">Czas obróbki</label>
           <input id="prep-duration" name="duration" ${existingRecipe?'':'required'} maxlength="80" placeholder="np. 8 godz." value="${esc(prep.duration||'')}"></div>
       </div>
+      <div class="field"><label for="prep-notes">Uwagi</label>
+        <textarea id="prep-notes" name="notes" maxlength="2000">${esc(prep.notes||'')}</textarea></div>
       <p class="scan-help" id="prep-error" role="status" hidden></p>
       <div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button>
         <button type="submit" class="primary-button">Zapisz prep</button></div>
@@ -346,7 +349,7 @@
         return;
       }
       const previous = category.recipes;
-      const updatedPrep = {...recipe?.prep,size:field('size'),temperature,duration};
+      const updatedPrep = {...recipe?.prep,size:field('size'),temperature,duration,notes:field('notes')};
       const entry = existingRecipe
         ? {...recipe,prep:{...updatedPrep,name}}
         : {...recipe,id:recipe?.id||id(),kind:'prep-sv',name,sections:[],prep:updatedPrep};
