@@ -31,22 +31,13 @@
 <div class="shell">
   <header class="topbar">
     <a class="brand" href="#" id="home-link"><span class="brandmark">✳</span><span class="brand-name">Moja kuchnia</span></a>
-    <div class="top-actions"><button class="quiet-button" id="google-sync" title="Synchronizuj z Arkuszem Google" aria-label="Synchronizuj z Arkuszem Google"><span aria-hidden="true">↻</span></button><button class="quiet-button" id="import-button" title="Wczytaj kopię zapasową">↥ <span class="backup-label">Wczytaj kopię</span></button><button class="quiet-button" id="export-button" title="Zapisz kopię zapasową">↧ <span class="backup-label">Kopia zapasowa</span></button><input id="import-file" type="file" accept="application/json,.json" class="hidden"></div>
+    <div class="top-actions"><button class="quiet-button" id="import-button" title="Wczytaj kopię zapasową">↥ <span class="backup-label">Wczytaj kopię</span></button><button class="quiet-button" id="export-button" title="Zapisz kopię zapasową">↧ <span class="backup-label">Kopia zapasowa</span></button><input id="import-file" type="file" accept="application/json,.json" class="hidden"></div>
   </header>
-  <div id="google-sync-feedback" hidden>
-    <p id="google-sync-status" role="status" class="scan-help"></p>
-    <button type="button" class="quiet-button" id="google-sync-settings">Ustawienia synchronizacji</button>
-    <span id="google-sync-conflicts" hidden>
-      <button type="button" class="quiet-button" id="google-sync-sheet">Zachowaj wersje z arkusza</button>
-      <button type="button" class="quiet-button" id="google-sync-app">Zachowaj wersje z aplikacji</button>
-    </span>
-  </div>
   <main id="main" class="main"></main>
   <p class="footer-note">Twoje przepisy są zapisane na tym urządzeniu.</p>
 </div>
 <div id="overlay-root"></div><div id="toast-root"></div>
 <script src="./tesseract.min.js"></script>
-<script src="./google-sync.js"></script>
 <script>
 (()=>{
   const KEY='domowa-kuchnia-v1';
@@ -217,114 +208,7 @@
   document.querySelector('#export-button').addEventListener('click',()=>{const blob=new Blob([JSON.stringify({format:'domowa-kuchnia',version:1,exportedAt:new Date().toISOString(),...state},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='moja-ksiazka-kucharska.json';a.click();URL.revokeObjectURL(a.href);toast('Kopia zapasowa pobrana')});
   document.querySelector('#import-button').addEventListener('click',()=>document.querySelector('#import-file').click());
   document.querySelector('#import-file').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{const data=JSON.parse(await file.text());if(!data||!Array.isArray(data.books)||!data.books.every(b=>typeof b.name==='string'&&Array.isArray(b.categories)))throw new Error('bad');if(confirm('Wczytać kopię zapasową? Obecne przepisy zostaną zastąpione zawartością kopii.')){state={books:data.books};save();navigate('home');toast('Kopia zapasowa wczytana')}}catch{toast('Nie udało się wczytać tego pliku')}e.target.value=''});
-  const syncButton = document.querySelector('#google-sync');
-  const syncFeedback = document.querySelector('#google-sync-feedback');
-  const syncStatus = document.querySelector('#google-sync-status');
-  const syncConflicts = document.querySelector('#google-sync-conflicts');
-  const syncSettings = document.querySelector('#google-sync-settings');
-  const syncUrlKey = 'domowa-kuchnia-apps-script';
-  const syncSecretKey = 'domowa-kuchnia-sync-key';
-  const syncFormat = 'moja-kuchnia-sync-1';
-  const validSyncUrl = /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/;
-  const validSyncKey = /^[a-f0-9]{64}$/;
-  let syncPending = false;
-
-  function openSyncSettings() {
-    showForm('Ustawienia synchronizacji', `
-      <form id="edit-form" class="form">
-        <div class="field"><label for="google-url">Adres wdrożenia Apps Script (/exec)</label>
-          <input id="google-url" name="url" required value="${esc(localStorage.getItem(syncUrlKey) || '')}"></div>
-        <div class="field"><label for="google-key">Klucz synchronizacji</label>
-          <input id="google-key" name="key" type="password" required autocomplete="off"
-            autocapitalize="off" spellcheck="false" value="${esc(localStorage.getItem(syncSecretKey) || '')}"></div>
-        <p class="scan-help" id="google-settings-status" role="status"></p>
-        <div class="form-actions"><button class="primary-button">Zapisz i synchronizuj</button></div>
-      </form>`, (data, form) => {
-      const url = String(data.get('url')).trim();
-      const key = String(data.get('key')).trim().toLowerCase();
-      if (!validSyncUrl.test(url) || !validSyncKey.test(key)) {
-        form.querySelector('#google-settings-status').textContent = 'Sprawdź adres /exec i klucz z menu arkusza.';
-        return;
-      }
-      localStorage.setItem(syncUrlKey,url);
-      localStorage.setItem(syncSecretKey,key);
-      closeForm();
-      syncRecipes();
-    });
-  }
-
-  async function runSync(url, request, key, policy) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(),45000);
-    try {
-      const response = await fetch(url,{
-        method:'POST',
-        credentials:'omit',
-        body:JSON.stringify({request,key,policy}),
-        signal:controller.signal
-      });
-      if (!response.ok) throw Error('Apps Script zwrócił błąd HTTP ' + response.status + '.');
-      if (!response.headers.get('content-type')?.includes('application/json')) {
-        throw Error('Adres /exec nie zwrócił danych synchronizacji. Wdróż nową wersję skryptu z dostępem „Każdy”.');
-      }
-      const result = await response.json();
-      if (result.error) throw Error(result.error);
-      return result;
-    } catch (error) {
-      if (error.name === 'AbortError') throw Error('Apps Script nie odpowiedział w ciągu 45 sekund. Spróbuj ponownie.');
-      if (error instanceof TypeError) throw Error('Nie udało się połączyć z Apps Script bez logowania. Sprawdź adres /exec i dostęp „Każdy” w najnowszym wdrożeniu.');
-      throw error;
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
-  async function syncRecipes(policy = '') {
-    if (syncPending) return;
-    const url = localStorage.getItem(syncUrlKey) || '';
-    const key = localStorage.getItem(syncSecretKey) || '';
-    if (!validSyncUrl.test(url) || !validSyncKey.test(key)) return openSyncSettings();
-    syncPending = true;
-    syncButton.disabled = true;
-    syncSettings.disabled = true;
-    syncFeedback.hidden = false;
-    syncConflicts.hidden = true;
-    syncStatus.textContent = 'Synchronizuję przepisy…';
-    try {
-      const before = localStorage.getItem(KEY);
-      const snapshot = load();
-      const baselineKey = syncUrlKey + ':' + url;
-      const session = crypto.randomUUID();
-      const request = {format:syncFormat,session,recipes:GoogleRecipes.flatten(snapshot),
-        baseline:JSON.parse(localStorage.getItem(baselineKey) || '{}')};
-      const result = await runSync(url,request,key,policy);
-      if (Array.isArray(result?.conflicts)) {
-        syncStatus.textContent = 'Zmienione po obu stronach: ' + result.conflicts.join(', ') + '. Wybierz wersję.';
-        syncConflicts.hidden = false;
-        return;
-      }
-      if (result?.format !== syncFormat || result.session !== session ||
-          !Array.isArray(result.download) || !result.baseline) throw Error('Google zwrócił nieprawidłowy wynik.');
-      if (localStorage.getItem(KEY) !== before) throw Error('Przepisy zmieniły się podczas synchronizacji. Naciśnij ↻ jeszcze raz.');
-      GoogleRecipes.apply(snapshot,result.download,id);
-      localStorage.setItem(KEY,JSON.stringify(snapshot));
-      state = snapshot;
-      localStorage.setItem(baselineKey,JSON.stringify(result.baseline));
-      render();
-      syncStatus.textContent = `Pobrano ${result.download.length}, wysłano ${result.uploaded}.`;
-    } catch (error) {
-      syncStatus.textContent = error.message;
-    } finally {
-      syncPending = false;
-      syncButton.disabled = false;
-      syncSettings.disabled = false;
-    }
-  }
-
-  syncButton.addEventListener('click', () => syncRecipes());
-  syncSettings.addEventListener('click',openSyncSettings);
-  document.querySelector('#google-sync-sheet').addEventListener('click',() => syncRecipes('sheet'));
-  document.querySelector('#google-sync-app').addEventListener('click',() => syncRecipes('app'));
+  try { localStorage.removeItem('domowa-kuchnia-sync-key'); } catch {}
   if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(()=>{});
   render();
 })();

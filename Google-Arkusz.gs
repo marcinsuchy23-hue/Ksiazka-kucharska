@@ -8,7 +8,6 @@ function onOpen() {
     .addItem('Dodaj przepis z szablonu', 'dodajDoTabeli')
     .addItem('Pokaż wybrany przepis', 'pokazWybranyPrzepis')
     .addItem('Odśwież spis', 'odswiezSpis')
-    .addItem('Utwórz klucz synchronizacji', 'utworzKluczSynchronizacji')
     .addToUi();
 }
 
@@ -51,7 +50,6 @@ const NAGLOWKI = ['ID', 'Nazwa', 'Książka', 'Dział', 'Porcje', 'Opis', 'Etapy
 function przejdzNaWspolnaTabele() {
   SpreadsheetApp.getUi();
   const plik = SpreadsheetApp.getActiveSpreadsheet();
-  PropertiesService.getScriptProperties().setProperty('ARKUSZ_ID', plik.getId());
   przygotujArkusz_();
   const baza = plik.getSheetByName(BAZA_PRZEPISOW) || plik.insertSheet(BAZA_PRZEPISOW);
   baza.getRange(1,1,1,NAGLOWKI.length).setValues([NAGLOWKI]).setFontWeight('bold');
@@ -176,99 +174,5 @@ function dodajDoTabeli() {
     szablon.getRange('A9').setValue('Przygotowanie');
     odswiezSpisTabeli_(plik);
     plik.setActiveSheet(plik.getSheetByName(SPIS_PRZEPISOW));
-  } finally { lock.releaseLock(); }
-}
-
-function utworzKluczSynchronizacji() {
-  if (!SpreadsheetApp.getActiveSpreadsheet()) throw Error('Otwórz menu w arkuszu.');
-  const ui = SpreadsheetApp.getUi();
-  if (ui.alert('Utworzyć nowy klucz synchronizacji?', 'Poprzedni klucz przestanie działać.', ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
-  const key = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g,'').toLowerCase();
-  PropertiesService.getScriptProperties().setProperty('SYNC_KEY_HASH', skrotKlucza_(key));
-  ui.showModalDialog(HtmlService.createHtmlOutput(
-    '<p>Skopiuj ten klucz do ustawień synchronizacji w aplikacji.</p>' +
-    '<textarea readonly rows="3" style="width:98%">' + key + '</textarea>'
-  ), 'Klucz synchronizacji');
-}
-
-function skrotKlucza_(key) {
-  return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, key));
-}
-
-function sprawdzKlucz_(key) {
-  if (typeof key !== 'string' || !/^[a-f0-9]{64}$/.test(key)) throw Error('Nieprawidłowy klucz synchronizacji.');
-  const expected = PropertiesService.getScriptProperties().getProperty('SYNC_KEY_HASH') || '';
-  const actual = skrotKlucza_(key);
-  let difference = expected.length ^ actual.length;
-  for (let i=0; i<actual.length; i++) difference |= (expected.charCodeAt(i) || 0) ^ actual.charCodeAt(i);
-  if (difference) throw Error('Nieprawidłowy klucz synchronizacji.');
-}
-
-function doGet() {
-  return ContentService.createTextOutput('Synchronizację uruchom w aplikacji Moja kuchnia. Połączenie bezpośrednie v3.');
-}
-
-function doPost(event) {
-  let result;
-  try {
-    const {request, policy, key} = JSON.parse(event.postData.contents);
-    result = synchronizujPrzepisy_(request,policy,key);
-  } catch (error) {
-    result = {error:error.message || 'Synchronizacja nie powiodła się.'};
-  }
-  return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
-}
-
-function synchronizujPrzepisy_(request, policy, key) {
-  sprawdzKlucz_(key);
-  if (request?.format !== 'moja-kuchnia-sync-1' || !/^[a-f0-9-]{36}$/.test(request.session) ||
-      !Array.isArray(request.recipes) || !request.baseline || typeof request.baseline !== 'object')
-    throw Error('Niepoprawny kod wymiany.');
-  const ids = new Set();
-  const tekst = value => typeof value === 'string' && value.length <= 49000;
-  for (const r of request.recipes) {
-    if (!r || typeof r.id !== 'string' || !/^[\w-]+$/.test(r.id) || ids.has(r.id) ||
-        ![r.name,r.book,r.category].every(v => tekst(v) && v.trim()) || !tekst(r.description) ||
-        !Number.isInteger(r.servings) || r.servings<1 || r.servings>100 || !Array.isArray(r.sections) ||
-        JSON.stringify(r.sections).length>49000 ||
-        !r.sections.every(s=>s && tekst(s.name) && tekst(s.instructions) && Array.isArray(s.ingredients) &&
-          s.ingredients.every(i=>i && tekst(i.name) && tekst(i.amount))))
-      throw Error('Kod zawiera nieprawidłowy lub zbyt długi przepis.');
-    ids.add(r.id);
-  }
-  const id = PropertiesService.getScriptProperties().getProperty('ARKUSZ_ID');
-  if (!id) throw Error('Najpierw przygotuj wspólną tabelę z menu Moja kuchnia w arkuszu.');
-  const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
-  try {
-    const plik = SpreadsheetApp.openById(id);
-    const remote = pobierzPrzepisy_(plik);
-    const local = new Map(request.recipes.map(r=>[r.id,r]));
-    const server = new Map(remote.map(r=>[r.id,r]));
-    if (remote.length !== server.size) throw Error('Baza zawiera duplikaty identyfikatorów.');
-    const fingerprint = r => JSON.stringify(r);
-    const conflicts = [], upload = [], download = [], baseline = Object.create(null);
-    for (const id of new Set([...local.keys(),...server.keys(),...Object.keys(request.baseline)])) {
-      const a = local.get(id), b = server.get(id);
-      const old = Object.prototype.hasOwnProperty.call(request.baseline,id) ? request.baseline[id] : undefined;
-      if (old && (!a || !b)) { baseline[id]=old; continue; }
-      let selected = a || b;
-      if (a && b && fingerprint(a)!==fingerprint(b)) {
-        if (fingerprint(a)===old) selected=b;
-        else if (fingerprint(b)===old) selected=a;
-        else if (policy==='sheet') selected=b;
-        else if (policy==='app') selected=a;
-        else { conflicts.push(a.name); continue; }
-      }
-      if (!selected) continue;
-      baseline[id]=fingerprint(selected);
-      if (fingerprint(selected)!==fingerprint(a)) download.push(selected);
-      if (fingerprint(selected)!==fingerprint(b)) upload.push(selected);
-    }
-    if (conflicts.length) return {conflicts};
-    zapiszDoBazy_(plik,upload);
-    odswiezSpisTabeli_(plik);
-    SpreadsheetApp.flush();
-    return {format:request.format,session:request.session,baseline,download,uploaded:upload.length};
   } finally { lock.releaseLock(); }
 }
