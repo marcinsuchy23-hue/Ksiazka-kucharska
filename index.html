@@ -76,6 +76,7 @@
   function empty(title,body,button,action){return `<div class="empty"><div class="empty-icon">🥄</div><h2>${title}</h2><p>${body}</p><button class="primary-button" data-action="${action}">${button}</button></div>`}
   function tileStyleFields(item={}){const size=[22,26,30,34].includes(Number(item?.tileTitleSize))?Number(item.tileTitleSize):26,weight=[400,500,600,700,800].includes(Number(item?.tileTitleWeight))?Number(item.tileTitleWeight):700;return '<div class="field-row"><div class="field"><label>Wielkość nazwy na kafelku</label><select name="tileTitleSize"><option value="22" '+(size===22?'selected':'')+'>Mała</option><option value="26" '+(size===26?'selected':'')+'>Średnia</option><option value="30" '+(size===30?'selected':'')+'>Duża</option><option value="34" '+(size===34?'selected':'')+'>Bardzo duża</option></select></div><div class="field"><label>Grubość czcionki</label><select name="tileTitleWeight"><option value="400" '+(weight===400?'selected':'')+'>Zwykła</option><option value="500" '+(weight===500?'selected':'')+'>Lekko pogrubiona</option><option value="600" '+(weight===600?'selected':'')+'>Średnia</option><option value="700" '+(weight===700?'selected':'')+'>Pogrubiona</option><option value="800" '+(weight===800?'selected':'')+'>Bardzo pogrubiona</option></select></div></div>'}
   function render(){
+    if (appleTouchDevice && isInlineEditor(document.activeElement)) document.activeElement.blur();
     if(route.type==='home')return renderHome();
     if(route.type==='book')return renderBook();
     if(route.type==='category')return renderCategory();
@@ -89,9 +90,20 @@
     main.innerHTML=`${crumb([{label:'Moja kuchnia',route:'home'}, {label:b.name}])}<section class="page-head"><div><div class="eyebrow">Książka kucharska</div><h1 class="heading">${esc(b.name)}</h1><p class="subheading">Wybierz dział albo dodaj nowy.</p></div><div class="top-actions"><button class="quiet-button" data-action="edit-book:${b.id}">Edytuj</button><button class="primary-button" data-action="new-category:${b.id}">＋ Dodaj dział</button></div></section>${b.categories.length?`<div class="grid">${b.categories.map((c,i)=>`<div class="tile-edit-wrap">${card(c.name,`${c.recipes.length} ${plural(c.recipes.length,'przepis','przepisy','przepisów')}`,icons[(i+1)%icons.length],colors[(i+2)%colors.length],`category:${b.id}:${c.id}`,'',c.photo||'',{size:c.tileTitleSize,weight:c.tileTitleWeight})}<button type="button" class="text-button tile-edit-link" data-action="edit-category:${b.id}:${c.id}">Edytuj dział i zdjęcie</button></div>`).join('')}</div>`:empty('Dodaj pierwszy dział','Działy pomagają uporządkować przepisy, na przykład na „Sosy”, „Zupy” albo „Ciasta”.','＋ Dodaj dział',`new-category:${b.id}`)}`;
   }
   function renderCategory(){const b=bookBy(route.book),c=catBy(b,route.category);if(!b||!c){route={type:'home'};return renderHome()};
-    const q=search.trim().toLocaleLowerCase('pl'), recipes=c.recipes.filter(r=>!q||`${r.name} ${r.description}`.toLocaleLowerCase('pl').includes(q));
-    main.innerHTML=`${crumb([{label:'Moja kuchnia',route:'home'},{label:b.name,route:`book:${b.id}`},{label:c.name}])}<section class="page-head"><div><div class="eyebrow">Dział w książce „${esc(b.name)}”</div><h1 class="heading">${esc(c.name)}</h1><p class="subheading">Twoje sprawdzone przepisy, zawsze pod ręką.</p></div><div class="top-actions"><button class="quiet-button" data-action="edit-category:${b.id}:${c.id}">Edytuj dział</button><button class="quiet-button" data-action="scan-photo:${b.id}:${c.id}">▧ Ze zdjęcia</button><button class="primary-button" data-action="new-recipe:${b.id}:${c.id}">＋ Dodaj przepis</button></div></section><input id="recipe-photo" class="hidden" type="file" accept="image/*">${c.recipes.length?`<div class="toolbar"><input id="recipe-search" class="search" type="search" placeholder="⌕  Szukaj przepisu…" value="${esc(search)}"></div>${recipes.length?`<div class="grid">${recipes.map((r,i)=>card(r.name,r.sections.length?`${r.sections.length} ${plural(r.sections.length,'etap','etapy','etapów')}`:'Otwórz przepis',['🍲','🥘','🍝','🥧','🥗','🍮'][i%6],colors[(i+1)%colors.length],`recipe:${b.id}:${c.id}:${r.id}`,'recipe-tile',r.photo||'',{size:r.tileTitleSize,weight:r.tileTitleWeight})).join('')}</div>`:`<div class="empty"><div class="empty-icon">⌕</div><h2>Nie znaleziono przepisu</h2><p>Spróbuj wpisać inną nazwę.</p></div>`}`:empty('Ten dział czeka na przepisy','Dodaj pierwszy przepis ze zdjęcia albo wpisz go ręcznie.','＋ Dodaj przepis',`new-recipe:${b.id}:${c.id}`)}`;
-    const input=document.querySelector('#recipe-search');if(input)input.addEventListener('input',e=>{search=e.target.value;const pos=input.selectionStart;renderCategory();const next=document.querySelector('#recipe-search');next.focus();next.setSelectionRange(pos,pos)});
+    main.innerHTML=`${crumb([{label:'Moja kuchnia',route:'home'},{label:b.name,route:`book:${b.id}`},{label:c.name}])}<section class="page-head"><div><div class="eyebrow">Dział w książce „${esc(b.name)}”</div><h1 class="heading">${esc(c.name)}</h1><p class="subheading">Twoje sprawdzone przepisy, zawsze pod ręką.</p></div><div class="top-actions"><button class="quiet-button" data-action="edit-category:${b.id}:${c.id}">Edytuj dział</button><button class="quiet-button" data-action="scan-photo:${b.id}:${c.id}">▧ Ze zdjęcia</button><button class="primary-button" data-action="new-recipe:${b.id}:${c.id}">＋ Dodaj przepis</button></div></section><input id="recipe-photo" class="hidden" type="file" accept="image/*">${c.recipes.length?`<div class="toolbar"><input id="recipe-search" class="search" type="search" placeholder="⌕  Szukaj przepisu…" value="${esc(search)}"></div><div id="recipe-search-results"></div>`:empty('Ten dział czeka na przepisy','Dodaj pierwszy przepis ze zdjęcia albo wpisz go ręcznie.','＋ Dodaj przepis',`new-recipe:${b.id}:${c.id}`)}`;
+    const input = main.querySelector('#recipe-search');
+    if (input) {
+      const results = main.querySelector('#recipe-search-results');
+      const refreshResults = () => {
+        const q=search.trim().toLocaleLowerCase('pl'), recipes=c.recipes.filter(r=>!q||`${r.name} ${r.description}`.toLocaleLowerCase('pl').includes(q));
+        results.innerHTML = recipes.length?`<div class="grid">${recipes.map((r,i)=>card(r.name,r.sections.length?`${r.sections.length} ${plural(r.sections.length,'etap','etapy','etapów')}`:'Otwórz przepis',['🍲','🥘','🍝','🥧','🥗','🍮'][i%6],colors[(i+1)%colors.length],`recipe:${b.id}:${c.id}:${r.id}`,'recipe-tile',r.photo||'',{size:r.tileTitleSize,weight:r.tileTitleWeight})).join('')}</div>`:`<div class="empty"><div class="empty-icon">⌕</div><h2>Nie znaleziono przepisu</h2><p>Spróbuj wpisać inną nazwę.</p></div>`;
+      };
+      input.addEventListener('input', () => {
+        search = input.value;
+        refreshResults();
+      });
+      refreshResults();
+    }
   }
   function renderRecipe(){const b=bookBy(route.book),c=catBy(b,route.category),r=recipeBy(b,c,route.recipe);if(!b||!c||!r){route={type:'home'};return renderHome()};
     const base=Number(r.servings)||4;
@@ -211,7 +223,7 @@
 
   function isInlineEditor(element) {
     return element instanceof HTMLElement && main.contains(element) &&
-      element.matches('textarea, input:not([type=hidden]):not([type=file]):not([type=checkbox]):not([type=radio])');
+      element.matches('select, textarea, input:not([type=hidden]):not([type=file]):not([type=checkbox]):not([type=radio])');
   }
 
   if (appleTouchDevice) {
