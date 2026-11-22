@@ -391,7 +391,7 @@
     const bakingSummary = main.querySelector('#baking-summary');
     const sections = [...main.querySelectorAll('.recipe-section[data-scale-section]')];
     const amountsBySection = sections.map(section => [...section.querySelectorAll('[data-base-amount]')]);
-    const baseMasses = amountsBySection.map(amounts => summarizeMass(amounts.map(el=>el.dataset.baseAmount)));
+    const baseMasses = amountsBySection.map((amounts,i) => summarizeMass(amounts.map(el=>el.dataset.baseAmount),recipe.sections[i].ingredients));
     const defaultStage = baseMasses.findLastIndex(mass=>mass?.max>0);
     mixerLimit.value = localStorage.getItem('domowa-kuchnia-mixer-limit') || '';
 
@@ -428,8 +428,8 @@
         const selected = scaleable.find(item=>`${item.section}:${item.index}`===items.value);
         const source = readQuantity(selected?.amount);
         const desired = readQuantity(target.value);
-        const sourceMass = massUnit(source?.tail);
-        const desiredMass = massUnit(desired?.tail);
+        const sourceMass = ingredientMassUnit(source?.tail,selected?.name);
+        const desiredMass = ingredientMassUnit(desired?.tail,selected?.name);
         if (!source || !desired || !Number.isFinite(desired.value) || desired.value<=0 ||
             (desired.tail.trim() && Boolean(sourceMass)!==Boolean(desiredMass))) {
           ratio = 1;
@@ -464,7 +464,7 @@
         }
         const amounts = amountsBySection[i].map(el=>el.textContent);
         if (recipe.bakerPercentages) updateBakerPercentages(section,recipe.sections[i],amounts,inScope?ratio:1);
-        return updateStageMass(section,amounts);
+        return updateStageMass(section,amounts,recipe.sections[i].ingredients);
       });
       const mass = plannedMass===undefined ? currentMasses[selectedStage] : {min:plannedMass,max:plannedMass,partial:false};
       const messages = [];
@@ -512,18 +512,30 @@
     return Object.hasOwn(factors,unit.trim().toLowerCase()) ? factors[unit.trim().toLowerCase()] : 0;
   }
 
-  function massInGrams(amount) {
+  function waterIngredient(name = '') {
+    return /^(woda|wody)(?=\s|$)/iu.test(name.trim());
+  }
+
+  function ingredientMassUnit(unit = '',name) {
+    const mass = massUnit(unit);
+    if (mass || !waterIngredient(name)) return mass;
+    const volume = {ml:1,cl:10,dl:100,l:1000};
+    const normalized = unit.trim().toLowerCase();
+    return Object.hasOwn(volume,normalized) ? volume[normalized] : 0;
+  }
+
+  function massInGrams(amount,name) {
     const range = amount.match(/^\s*(\d+(?:[,.]\d+)?)\s*[-–—]\s*(\d+(?:[,.]\d+)?)(.*)$/);
     const quantity = range ? readQuantity(range[2] + range[3]) : readQuantity(amount);
-    const factor = massUnit(quantity?.tail);
+    const factor = ingredientMassUnit(quantity?.tail,name);
     if (!factor || !Number.isFinite(quantity?.value)) return null;
     const end = quantity.value * factor;
     const start = range ? Number(range[1].replace(',','.')) * factor : end;
     return [Math.min(start,end),Math.max(start,end)];
   }
 
-  function summarizeMass(amounts) {
-    const masses = amounts.map(massInGrams).filter(Boolean);
+  function summarizeMass(amounts,ingredients = []) {
+    const masses = amounts.map((amount,i)=>massInGrams(amount,ingredients[i]?.name)).filter(Boolean);
     if (!masses.length) return null;
     const [min,max] = masses.reduce(([low,high],[start,end])=>[low+start,high+end],[0,0]);
     return {min,max,partial:masses.length<amounts.length};
@@ -532,17 +544,19 @@
   function updateBakerPercentages(section,stage,amounts,ratio) {
     const summary = section.querySelector('[data-baker-summary]');
     const labels = section.querySelectorAll('[data-baker-percent]');
-    const masses = amounts.map(amount=>{
-      const bounds = massInGrams(amount);
+    const masses = amounts.map((amount,i)=>{
+      const bounds = massInGrams(amount,stage.ingredients?.[i]?.name);
       return bounds && bounds[0]===bounds[1] ? bounds[0] : null;
     });
     let flour = (Number(stage.starterFlourGrams)||0)*ratio;
     let water = (Number(stage.starterWaterGrams)||0)*ratio;
     let missing = false;
+    let hasFlour = flour>0;
     (stage.ingredients||[]).forEach((item,i)=>{
       const name = (item.name||'').trim().toLocaleLowerCase('pl');
       const isFlour = /^(mąka|mąki|maka|maki)(?:\s|$)/u.test(name);
-      const isWater = /^(woda|wody)(?:\s|$)/u.test(name);
+      const isWater = waterIngredient(name) || /^(lód|lod|lodu)(?=\s|$)/u.test(name);
+      hasFlour ||= isFlour;
       if (!isFlour && !isWater) return;
       if (masses[i]===null) {
         missing = true;
@@ -558,7 +572,7 @@
       label.hidden = !canCalculate || masses[i]===null;
       if (!label.hidden) label.textContent = percent(masses[i]);
     });
-    summary.hidden = !amounts.length;
+    summary.hidden = !hasFlour;
     if (summary.hidden) return;
     summary.textContent = canCalculate
       ? `Hydracja: ${percent(water)} · Mąka: ${formatGrams(flour)} · Woda: ${formatGrams(water)}`
@@ -569,9 +583,9 @@
     return new Intl.NumberFormat('pl',{maximumFractionDigits:3}).format(value)+' g';
   }
 
-  function updateStageMass(section,amounts) {
+  function updateStageMass(section,amounts,ingredients) {
     const output = section.querySelector('[data-stage-mass]');
-    const mass = summarizeMass(amounts);
+    const mass = summarizeMass(amounts,ingredients);
     output.hidden = !mass;
     if (!mass) return null;
     const low = formatGrams(mass.min), high = formatGrams(mass.max);
@@ -818,8 +832,8 @@
     function refreshEditorMass(section) {
       const rows = section.querySelectorAll('.ingredient-editor');
       const amounts = Array.from(rows,row=>[row.querySelector('[data-amount]').value,row.querySelector('[data-ing-name]').value])
-        .filter(values=>values.some(value=>value.trim())).map(([amount])=>amount);
-      updateStageMass(section,amounts);
+        .filter(values=>values.some(value=>value.trim()));
+      updateStageMass(section,amounts.map(([amount])=>amount),amounts.map(([,name])=>({name})));
     }
     sectionsRoot.querySelectorAll('[data-section]').forEach(refreshEditorMass);
     sectionsRoot.addEventListener('input',event=>{
