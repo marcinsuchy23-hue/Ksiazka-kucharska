@@ -1,6 +1,6 @@
 # Synchronizacja z Arkuszem Google
 
-Konfiguracja korzysta z Apps Script i prywatnego wdrożenia dla właściciela. Nie wymaga Google Cloud Console ani klienta OAuth.
+Konfiguracja korzysta z Apps Script i klucza synchronizacji. Arkusz pozostaje prywatny, a adres wdrożenia działa bez logowania. Nie wymaga Google Cloud Console ani klienta OAuth.
 
 ## Zaktualizuj skrypt i arkusz
 
@@ -10,8 +10,8 @@ Konfiguracja korzysta z Apps Script i prywatnego wdrożenia dla właściciela. N
 
 ## Wdróż i połącz
 
-1. W edytorze Apps Script wybierz **Wdróż → Nowe wdrożenie → Aplikacja internetowa**. Ustaw **Wykonuj jako: Ja** i **Kto ma dostęp: Tylko ja**. Wdróż i skopiuj adres kończący się na `/exec`. W razie kolejnej zmiany kodu zaktualizuj to samo wdrożenie przez **Zarządzaj wdrożeniami** i wybierz nową wersję.
-2. Otwórz aktualną wersję „Mojej kuchni” przez HTTPS lub na serwerze lokalnym. Kliknij **↻**, wklej adres wdrożenia i wybierz **Otwórz synchronizację**. Jeśli Google poprosi o zalogowanie, wybierz konto właściciela. Po zapisaniu adresu kliknięcie **↻** od razu rozpoczyna wymianę w obu kierunkach. Jeśli wykryje konflikt, okno Google pozostanie otwarte z wyborem wersji.
-3. Jeśli przeglądarka odseparuje okna, w aplikacji rozwiń **Ręczne przekazanie danych**. Skopiuj kod wymiany do okna Google i wybierz **Synchronizuj**. Skopiuj wynik z okna Google do aplikacji i kliknij **Odbierz wynik**.
+1. Po zapisaniu nowego kodu odśwież arkusz. Wybierz **Moja kuchnia → Utwórz klucz synchronizacji** i skopiuj klucz. Przechowuj go prywatnie. Utworzenie nowego klucza unieważnia poprzedni.
+2. W Apps Script wybierz **Wdróż → Zarządzaj wdrożeniami**, edytuj dotychczasowe wdrożenie i wybierz **Nowa wersja**. Ustaw **Wykonuj jako: Ja** i **Kto ma dostęp: Każdy** (także bez zalogowania). Wdróż. Adres `/exec` pozostaje ten sam. Dostęp do samego arkusza się nie zmienia, a operacje synchronizacji wymagają klucza.
+3. Otwórz [Moją kuchnię na GitHub Pages](https://marcinsuchy23-hue.github.io/Ksiazka-kucharska/), naciśnij **↻** i wklej adres oraz klucz. Przy kolejnych kliknięciach aplikacja synchronizuje w tle i podaje liczby pobranych i wysłanych wpisów.
 
-Synchronizacja przesyła nowe i zmienione przepisy w obu kierunkach. Skrypt zatrzymuje zapis, jeśli wykryje sprzeczne zmiany, i pozwala wskazać, którą stronę zachować dla zgłoszonych konfliktów. Usunięcia stosuje się osobno. Lokalne dane aplikacji nadal są dostępne offline.
+Synchronizacja przesyła nowe i zmienione przepisy w obu kierunkach. W razie konfliktu aplikacja wyświetla wybór wersji. Usunięcia stosuje się osobno. Lokalne dane aplikacji nadal są dostępne offline.

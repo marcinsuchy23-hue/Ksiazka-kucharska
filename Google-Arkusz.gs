@@ -8,10 +8,11 @@ function onOpen() {
     .addItem('Dodaj przepis z szablonu', 'dodajDoTabeli')
     .addItem('Pokaż wybrany przepis', 'pokazWybranyPrzepis')
     .addItem('Odśwież spis', 'odswiezSpis')
+    .addItem('Utwórz klucz synchronizacji', 'utworzKluczSynchronizacji')
     .addToUi();
 }
 
-function przygotujArkusz() {
+function przygotujArkusz_() {
   const plik = SpreadsheetApp.getActiveSpreadsheet();
   if (!plik.getSheetByName(SPIS_PRZEPISOW)) {
     const spis = plik.insertSheet(SPIS_PRZEPISOW, 0);
@@ -38,8 +39,9 @@ function przygotujArkusz() {
 }
 
 function odswiezSpis() {
+  SpreadsheetApp.getUi();
   const plik = SpreadsheetApp.getActiveSpreadsheet();
-  if (plik.getSheetByName(BAZA_PRZEPISOW)) odswiezSpisTabeli(plik);
+  if (plik.getSheetByName(BAZA_PRZEPISOW)) odswiezSpisTabeli_(plik);
 }
 
 const BAZA_PRZEPISOW = 'Baza przepisów';
@@ -47,31 +49,32 @@ const KARTA_PRZEPISU = 'Karta przepisu';
 const NAGLOWKI = ['ID', 'Nazwa', 'Książka', 'Dział', 'Porcje', 'Opis', 'Etapy (dane)', 'Składniki'];
 
 function przejdzNaWspolnaTabele() {
+  SpreadsheetApp.getUi();
   const plik = SpreadsheetApp.getActiveSpreadsheet();
   PropertiesService.getScriptProperties().setProperty('ARKUSZ_ID', plik.getId());
-  przygotujArkusz();
+  przygotujArkusz_();
   const baza = plik.getSheetByName(BAZA_PRZEPISOW) || plik.insertSheet(BAZA_PRZEPISOW);
   baza.getRange(1,1,1,NAGLOWKI.length).setValues([NAGLOWKI]).setFontWeight('bold');
   baza.setFrozenRows(1);
   baza.hideColumns(1);
   baza.hideColumns(7);
   baza.setColumnWidths(2, 7, 170);
-  const obecne = new Set(pobierzPrzepisy(plik).map(r => r.id));
+  const obecne = new Set(pobierzPrzepisy_(plik).map(r => r.id));
   const stare = plik.getSheets().flatMap(karta => {
     if (karta.getRange('A1').getValue() !== ZNACZNIK_PRZEPISU) return [];
     const dane = karta.getRange(1,1,karta.getLastRow(),4).getDisplayValues();
     const id = dane[0][1];
     if (obecne.has(id)) return [];
     obecne.add(id);
-    return [odczytajKarte(dane,id)];
+    return [odczytajKarte_(dane,id)];
   });
-  zapiszDoBazy(plik, stare);
+  zapiszDoBazy_(plik, stare);
   if (!plik.getSheetByName(KARTA_PRZEPISU)) plik.insertSheet(KARTA_PRZEPISU);
-  odswiezSpisTabeli(plik);
+  odswiezSpisTabeli_(plik);
   plik.setActiveSheet(plik.getSheetByName(SPIS_PRZEPISOW));
 }
 
-function odczytajKarte(dane,id) {
+function odczytajKarte_(dane,id) {
   const sections = [];
   for (const [name, amount, ingredient, instructions] of dane.slice(8)) {
     if (name || instructions) sections.push({name,instructions,ingredients:[]});
@@ -84,7 +87,7 @@ function odczytajKarte(dane,id) {
   return {id,book,category,name,servings:Number(servings)||4,description,sections};
 }
 
-function pobierzPrzepisy(plik) {
+function pobierzPrzepisy_(plik) {
   const baza = plik.getSheetByName(BAZA_PRZEPISOW);
   if (!baza || baza.getLastRow()<2) return [];
   return baza.getRange(2,1,baza.getLastRow()-1,7).getValues().filter(r => r[0])
@@ -92,7 +95,7 @@ function pobierzPrzepisy(plik) {
       ({id,book,category,name,servings:Number(servings),description,sections:JSON.parse(etapy)}));
 }
 
-function zapiszDoBazy(plik, przepisy) {
+function zapiszDoBazy_(plik, przepisy) {
   if (!przepisy.length) return;
   const baza = plik.getSheetByName(BAZA_PRZEPISOW);
   const ostatni = baza.getLastRow();
@@ -115,9 +118,9 @@ function zapiszDoBazy(plik, przepisy) {
   }
 }
 
-function odswiezSpisTabeli(plik) {
+function odswiezSpisTabeli_(plik) {
   const spis = plik.getSheetByName(SPIS_PRZEPISOW);
-  const przepisy = pobierzPrzepisy(plik).sort((a,b) => a.name.localeCompare(b.name,'pl'));
+  const przepisy = pobierzPrzepisy_(plik).sort((a,b) => a.name.localeCompare(b.name,'pl'));
   if (spis.getFilter()) spis.getFilter().remove();
   spis.getDataRange().clearContent();
   const rows = [['Nazwa przepisu','Książka','Dział','Porcje','Składniki','ID'],
@@ -133,12 +136,13 @@ function odswiezSpisTabeli(plik) {
 }
 
 function pokazWybranyPrzepis() {
+  SpreadsheetApp.getUi();
   const plik = SpreadsheetApp.getActiveSpreadsheet();
   const active = plik.getActiveSheet();
   if (active.getName() !== SPIS_PRZEPISOW || active.getActiveCell().getRow()<2)
     return SpreadsheetApp.getUi().alert('Zaznacz wiersz przepisu w spisie.');
   const id = active.getRange(active.getActiveCell().getRow(),6).getDisplayValue();
-  const r = pobierzPrzepisy(plik).find(p => p.id===id);
+  const r = pobierzPrzepisy_(plik).find(p => p.id===id);
   if (!r) return;
   const karta = plik.getSheetByName(KARTA_PRZEPISU);
   karta.getDataRange().clearContent();
@@ -155,89 +159,80 @@ function pokazWybranyPrzepis() {
 }
 
 function dodajDoTabeli() {
+  SpreadsheetApp.getUi();
   const plik = SpreadsheetApp.getActiveSpreadsheet();
   const szablon = plik.getSheetByName(NOWY_PRZEPIS);
   const dane = szablon.getRange(1,1,szablon.getLastRow(),4).getDisplayValues();
-  const r = odczytajKarte(dane,Utilities.getUuid());
+  const r = odczytajKarte_(dane,Utilities.getUuid());
   if (![r.name,r.book,r.category].every(v=>v.trim()) || !Number.isInteger(r.servings) || r.servings<1 || r.servings>100)
     return SpreadsheetApp.getUi().alert('Wpisz nazwę, książkę, dział i liczbę porcji od 1 do 100.');
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    zapiszDoBazy(plik,[r]);
+    zapiszDoBazy_(plik,[r]);
     szablon.getRange('B2:B6').clearContent();
     szablon.getRange('B5').setValue(4);
     szablon.getRange('A9:D').clearContent();
     szablon.getRange('A9').setValue('Przygotowanie');
-    odswiezSpisTabeli(plik);
+    odswiezSpisTabeli_(plik);
     plik.setActiveSheet(plik.getSheetByName(SPIS_PRZEPISOW));
   } finally { lock.releaseLock(); }
 }
 
-function doGet(e) {
-  const origin = String(e.parameter.origin || '');
-  const session = String(e.parameter.session || '');
-  const config = JSON.stringify({
-    origin: /^https:\/\/[a-z0-9.-]+(:\d+)?$|^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin) ? origin : '',
-    session: /^[a-f0-9-]{36}$/.test(session) ? session : ''
-  });
-  return HtmlService.createHtmlOutput(`<!doctype html><meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <style>body{max-width:56rem;margin:2rem auto;padding:0 1rem;font:1rem system-ui}textarea{display:block;width:100%;box-sizing:border-box;margin:.5rem 0}button{padding:.6rem;margin-bottom:1rem}</style>
-    <h1>Synchronizacja przepisów</h1>
-    <p id="status" role="status">Jeśli aplikacja nie połączy się z tym oknem, wklej kod wymiany z aplikacji.</p>
-    <label for="input">Kod z aplikacji</label><textarea id="input" rows="5"></textarea>
-    <label for="policy">Jeśli przepis zmienił się w obu miejscach</label>
-    <select id="policy"><option value="">Zatrzymaj i pokaż przepisy</option><option value="sheet">Zachowaj wersje z arkusza</option><option value="app">Zachowaj wersje z aplikacji</option></select>
-    <button id="save">Synchronizuj</button>
-    <label for="output">Wynik do wklejenia w aplikacji</label><textarea id="output" rows="5" readonly></textarea>
-    <button id="copy">Zaznacz wynik do skopiowania</button>
-    <script>
-    const config = ${config};
-    const field = id => document.getElementById(id);
-    let connected, running;
-    function send(type, payload) {
-      if (config.origin && config.session && window.top.opener)
-        window.top.opener.postMessage({type, session:config.session, payload}, config.origin);
-    }
-    window.addEventListener('message', event => {
-      if (event.origin !== config.origin || event.source !== window.top.opener ||
-          event.data?.type !== 'kuchnia-request' || event.data.session !== config.session || connected) return;
-      connected = true;
-      field('input').value = JSON.stringify(event.data.payload);
-      field('status').textContent = 'Połączono z aplikacją. Kliknij Synchronizuj, aby zatwierdzić zapis.';
-      if (event.data.auto === true && event.origin === 'https://marcinsuchy23-hue.github.io') field('save').click();
-    });
-    field('save').onclick = () => {
-      if (running) return;
-      let request;
-      try { request = JSON.parse(field('input').value); }
-      catch { field('status').textContent = 'Wklej pełny kod wymiany z aplikacji.'; return; }
-      running = true;
-      field('save').disabled = true;
-      field('status').textContent = 'Trwa synchronizacja…';
-      google.script.run.withSuccessHandler(result => {
-        running = false;
-        field('save').disabled = false;
-        if (result.conflicts) {
-          field('status').textContent = 'Zmienione po obu stronach: ' + result.conflicts.join(', ') + '. Wybierz wersję i spróbuj ponownie.';
-          return;
-        }
-        field('output').value = JSON.stringify(result);
-        field('status').textContent = 'Zapisano w arkuszu. Jeśli aplikacja nie przyjęła wyniku automatycznie, skopiuj go z pola poniżej.';
-        if (connected) send('kuchnia-result', result);
-      }).withFailureHandler(error => {
-        running = false;
-        field('save').disabled = false;
-        field('status').textContent = error.message;
-      }).synchronizujPrzepisy(request,field('policy').value);
-    };
-    field('copy').onclick = () => { field('output').focus(); field('output').select(); };
-    send('kuchnia-ready');
-    </script>`).setTitle('Moja kuchnia');
+const ORIGIN_APLIKACJI = 'https://marcinsuchy23-hue.github.io';
+
+function utworzKluczSynchronizacji() {
+  if (!SpreadsheetApp.getActiveSpreadsheet()) throw Error('Otwórz menu w arkuszu.');
+  const ui = SpreadsheetApp.getUi();
+  if (ui.alert('Utworzyć nowy klucz synchronizacji?', 'Poprzedni klucz przestanie działać.', ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
+  const key = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g,'').toLowerCase();
+  PropertiesService.getScriptProperties().setProperty('SYNC_KEY_HASH', skrotKlucza_(key));
+  ui.showModalDialog(HtmlService.createHtmlOutput(
+    '<p>Skopiuj ten klucz do ustawień synchronizacji w aplikacji.</p>' +
+    '<textarea readonly rows="3" style="width:98%">' + key + '</textarea>'
+  ), 'Klucz synchronizacji');
 }
 
-function synchronizujPrzepisy(request, policy) {
+function skrotKlucza_(key) {
+  return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, key));
+}
+
+function sprawdzKlucz_(key) {
+  if (typeof key !== 'string' || !/^[a-f0-9]{64}$/.test(key)) throw Error('Nieprawidłowy klucz synchronizacji.');
+  const expected = PropertiesService.getScriptProperties().getProperty('SYNC_KEY_HASH') || '';
+  const actual = skrotKlucza_(key);
+  let difference = expected.length ^ actual.length;
+  for (let i=0; i<actual.length; i++) difference |= (expected.charCodeAt(i) || 0) ^ actual.charCodeAt(i);
+  if (difference) throw Error('Nieprawidłowy klucz synchronizacji.');
+}
+
+function doGet(e) {
+  const session = String(e.parameter.session || '');
+  if (!/^[a-f0-9-]{36}$/.test(session)) return HtmlService.createHtmlOutput('Synchronizację uruchom w aplikacji Moja kuchnia.');
+  return HtmlService.createHtmlOutput(`<!doctype html><meta charset="utf-8"><script>
+    const origin = ${JSON.stringify(ORIGIN_APLIKACJI)};
+    const session = ${JSON.stringify(session)};
+    let running = false;
+    function send(type,payload) { window.top.postMessage({type,session,payload},origin); }
+    window.addEventListener('message',event => {
+      if (event.source !== window.top || event.origin !== origin ||
+          event.data?.type !== 'kuchnia-request-v2' || event.data.session !== session || running) return;
+      running = true;
+      const {request,key,policy} = event.data;
+      google.script.run.withSuccessHandler(result => {
+        running = false;
+        send('kuchnia-result-v2',result);
+      }).withFailureHandler(error => {
+        running = false;
+        send('kuchnia-error-v2',error.message);
+      }).synchronizujPrzepisy(request,policy,key);
+    });
+    send('kuchnia-ready-v2');
+  </script>`).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL).setTitle('Moja kuchnia');
+}
+
+function synchronizujPrzepisy(request, policy, key) {
+  sprawdzKlucz_(key);
   if (request?.format !== 'moja-kuchnia-sync-1' || !/^[a-f0-9-]{36}$/.test(request.session) ||
       !Array.isArray(request.recipes) || !request.baseline || typeof request.baseline !== 'object')
     throw Error('Niepoprawny kod wymiany.');
@@ -259,7 +254,7 @@ function synchronizujPrzepisy(request, policy) {
   lock.waitLock(20000);
   try {
     const plik = SpreadsheetApp.openById(id);
-    const remote = pobierzPrzepisy(plik);
+    const remote = pobierzPrzepisy_(plik);
     const local = new Map(request.recipes.map(r=>[r.id,r]));
     const server = new Map(remote.map(r=>[r.id,r]));
     if (remote.length !== server.size) throw Error('Baza zawiera duplikaty identyfikatorów.');
@@ -283,8 +278,8 @@ function synchronizujPrzepisy(request, policy) {
       if (fingerprint(selected)!==fingerprint(b)) upload.push(selected);
     }
     if (conflicts.length) return {conflicts};
-    zapiszDoBazy(plik,upload);
-    odswiezSpisTabeli(plik);
+    zapiszDoBazy_(plik,upload);
+    odswiezSpisTabeli_(plik);
     SpreadsheetApp.flush();
     return {format:request.format,session:request.session,baseline,download,uploaded:upload.length};
   } finally { lock.releaseLock(); }

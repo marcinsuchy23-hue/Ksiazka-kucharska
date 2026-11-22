@@ -33,6 +33,14 @@
     <a class="brand" href="#" id="home-link"><span class="brandmark">✳</span><span class="brand-name">Moja kuchnia</span></a>
     <div class="top-actions"><button class="quiet-button" id="google-sync" title="Synchronizuj z Arkuszem Google" aria-label="Synchronizuj z Arkuszem Google"><span aria-hidden="true">↻</span></button><button class="quiet-button" id="import-button" title="Wczytaj kopię zapasową">↥ <span class="backup-label">Wczytaj kopię</span></button><button class="quiet-button" id="export-button" title="Zapisz kopię zapasową">↧ <span class="backup-label">Kopia zapasowa</span></button><input id="import-file" type="file" accept="application/json,.json" class="hidden"></div>
   </header>
+  <div id="google-sync-feedback" hidden>
+    <p id="google-sync-status" role="status" class="scan-help"></p>
+    <button type="button" class="quiet-button" id="google-sync-settings">Ustawienia synchronizacji</button>
+    <span id="google-sync-conflicts" hidden>
+      <button type="button" class="quiet-button" id="google-sync-sheet">Zachowaj wersje z arkusza</button>
+      <button type="button" class="quiet-button" id="google-sync-app">Zachowaj wersje z aplikacji</button>
+    </span>
+  </div>
   <main id="main" class="main"></main>
   <p class="footer-note">Twoje przepisy są zapisane na tym urządzeniu.</p>
 </div>
@@ -169,7 +177,7 @@
   function navigate(value){const p=value.split(':');if(p[0]==='home'){route={type:'home'};search=''}else if(p[0]==='book'){route={type:'book',book:p[1]}}else if(p[0]==='category'){route={type:'category',book:p[1],category:p[2]};search=''}else if(p[0]==='recipe'){route={type:'recipe',book:p[1],category:p[2],recipe:p[3]}}render();window.scrollTo(0,0)}
   function toast(msg){const el=document.querySelector('#toast-root');el.innerHTML=`<div class="notice">${esc(msg)}</div>`;setTimeout(()=>el.innerHTML='',2600)}
   function showForm(title,content,onSave){document.querySelector('#overlay-root').innerHTML=`<div class="form-overlay"><section class="dialog" role="dialog" aria-modal="true" aria-label="${esc(title)}"><header class="dialog-head"><div><h2>${esc(title)}</h2><p class="dialog-intro">Zmiany zapisują się na tym urządzeniu.</p></div><button type="button" class="icon-button" data-close aria-label="Zamknij">✕</button></header>${content}</section></div>`;const over=document.querySelector('.form-overlay');over.addEventListener('click',e=>{if(e.target===over||e.target.closest('button[data-close]'))closeForm()});const form=document.querySelector('#edit-form');form?.addEventListener('submit',e=>{e.preventDefault();onSave(new FormData(form),form)})}
-  function closeForm(){document.querySelector('#edit-form')?.stopGoogleSync?.();document.querySelector('#overlay-root').innerHTML=''}
+  function closeForm(){document.querySelector('#overlay-root').innerHTML=''}
   function bookForm(book=null){
     const existing=Boolean(book);
     const content='<form id="edit-form" class="form"><div class="field"><label for="item-name">Nazwa książki kucharskiej</label><input id="item-name" name="name" required maxlength="70" value="'+esc(book?.name||'')+'" placeholder="np. Moje ulubione przepisy"></div><div class="field"><label for="book-photo">Zdjęcie książki</label><input id="book-photo" type="file" accept="image/*"><span class="scan-help">Wybierz zdjęcie z galerii albo zrób je aparatem. Pojawi się na kafelku książki.</span><div class="photo-preview-box" id="book-photo-preview">'+(book?.photo?'<img class="recipe-photo-preview" src="'+esc(book.photo)+'" alt="Podgląd zdjęcia książki">':'<span class="scan-help">Nie dodano jeszcze zdjęcia.</span>')+'</div>'+(book?.photo?'<label><input type="checkbox" name="removePhoto"> Usuń obecne zdjęcie przy zapisie</label>':'')+'</div>'+tileStyleFields(book)+'<div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button><button class="primary-button">'+(existing?'Zapisz zmiany':'Utwórz książkę')+'</button></div></form>';
@@ -209,80 +217,133 @@
   document.querySelector('#export-button').addEventListener('click',()=>{const blob=new Blob([JSON.stringify({format:'domowa-kuchnia',version:1,exportedAt:new Date().toISOString(),...state},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='moja-ksiazka-kucharska.json';a.click();URL.revokeObjectURL(a.href);toast('Kopia zapasowa pobrana')});
   document.querySelector('#import-button').addEventListener('click',()=>document.querySelector('#import-file').click());
   document.querySelector('#import-file').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{const data=JSON.parse(await file.text());if(!data||!Array.isArray(data.books)||!data.books.every(b=>typeof b.name==='string'&&Array.isArray(b.categories)))throw new Error('bad');if(confirm('Wczytać kopię zapasową? Obecne przepisy zostaną zastąpione zawartością kopii.')){state={books:data.books};save();navigate('home');toast('Kopia zapasowa wczytana')}}catch{toast('Nie udało się wczytać tego pliku')}e.target.value=''});
-  document.querySelector('#google-sync').addEventListener('click', () => {
-    const settingsKey = 'domowa-kuchnia-apps-script';
-    const format = 'moja-kuchnia-sync-1';
-    const savedUrl = localStorage.getItem(settingsKey) || '';
-    showForm('Synchronizacja z Arkuszem Google', `
+  const syncButton = document.querySelector('#google-sync');
+  const syncFeedback = document.querySelector('#google-sync-feedback');
+  const syncStatus = document.querySelector('#google-sync-status');
+  const syncConflicts = document.querySelector('#google-sync-conflicts');
+  const syncSettings = document.querySelector('#google-sync-settings');
+  const syncUrlKey = 'domowa-kuchnia-apps-script';
+  const syncSecretKey = 'domowa-kuchnia-sync-key';
+  const syncFormat = 'moja-kuchnia-sync-1';
+  const validSyncUrl = /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/;
+  const validSyncKey = /^[a-f0-9]{64}$/;
+  let syncPending = false;
+
+  function openSyncSettings() {
+    showForm('Ustawienia synchronizacji', `
       <form id="edit-form" class="form">
-        <div class="field"><label for="google-url">Adres wdrożenia Apps Script (końcówka /exec)</label>
-          <input id="google-url" name="url" required value="${esc(savedUrl)}"></div>
-        <div class="form-actions"><button class="primary-button">Otwórz synchronizację</button></div>
-        <p class="scan-help" id="google-status" role="status"></p>
-        <details id="google-manual" hidden>
-          <summary>Ręczne przekazanie danych, gdy okna się nie połączą</summary>
-          <div class="field"><label for="google-request">Skopiuj do okna Apps Script</label>
-            <textarea id="google-request" readonly></textarea></div>
-          <div class="field"><label for="google-response">Wklej wynik z Apps Script</label>
-            <textarea id="google-response"></textarea></div>
-          <button type="button" class="quiet-button" id="google-apply">Odbierz wynik</button>
-        </details>
+        <div class="field"><label for="google-url">Adres wdrożenia Apps Script (/exec)</label>
+          <input id="google-url" name="url" required value="${esc(localStorage.getItem(syncUrlKey) || '')}"></div>
+        <div class="field"><label for="google-key">Klucz synchronizacji</label>
+          <input id="google-key" name="key" type="password" required autocomplete="off"
+            autocapitalize="off" spellcheck="false" value="${esc(localStorage.getItem(syncSecretKey) || '')}"></div>
+        <p class="scan-help" id="google-settings-status" role="status"></p>
+        <div class="form-actions"><button class="primary-button">Zapisz i synchronizuj</button></div>
       </form>`, (data, form) => {
-      const status = form.querySelector('#google-status');
       const url = String(data.get('url')).trim();
-      if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url)) {
-        status.textContent = 'Wklej pełny adres wdrożenia Apps Script zakończony /exec.';
+      const key = String(data.get('key')).trim().toLowerCase();
+      if (!validSyncUrl.test(url) || !validSyncKey.test(key)) {
+        form.querySelector('#google-settings-status').textContent = 'Sprawdź adres /exec i klucz z menu arkusza.';
         return;
       }
+      localStorage.setItem(syncUrlKey,url);
+      localStorage.setItem(syncSecretKey,key);
+      closeForm();
+      syncRecipes();
+    });
+  }
+
+  function runSync(url, request, key, policy) {
+    return new Promise((resolve,reject) => {
+      const frame = document.createElement('iframe');
+      frame.hidden = true;
+      frame.title = 'Połączenie z Arkuszem Google';
+      frame.referrerPolicy = 'no-referrer';
+      frame.src = url + '?session=' + encodeURIComponent(request.session);
+      let source, origin;
+      const timer = setTimeout(() => finish(Error('Google nie odpowiedział. Sprawdź internet i wersję wdrożenia Apps Script.')),90000);
+
+      function finish(error,result) {
+        clearTimeout(timer);
+        window.removeEventListener('message',receive);
+        frame.remove();
+        if (error) reject(error);
+        else resolve(result);
+      }
+
+      function fromFrame(candidate) {
+        while (candidate && candidate !== window) {
+          if (candidate === frame.contentWindow) return true;
+          candidate = candidate.parent;
+        }
+        return false;
+      }
+
+      function receive(event) {
+        if (event.data?.session !== request.session) return;
+        if (!source && event.data.type === 'kuchnia-ready-v2' &&
+            /^https:\/\/(script\.google\.com|[\w-]+\.googleusercontent\.com)$/.test(event.origin) &&
+            fromFrame(event.source)) {
+          source = event.source;
+          origin = event.origin;
+          source.postMessage({type:'kuchnia-request-v2',session:request.session,request,key,policy},origin);
+        }
+        if (event.source !== source || event.origin !== origin) return;
+        if (event.data.type === 'kuchnia-result-v2') finish(null,event.data.payload);
+        if (event.data.type === 'kuchnia-error-v2') finish(Error(String(event.data.payload)));
+      }
+
+      window.addEventListener('message',receive);
+      document.body.append(frame);
+    });
+  }
+
+  async function syncRecipes(policy = '') {
+    if (syncPending) return;
+    const url = localStorage.getItem(syncUrlKey) || '';
+    const key = localStorage.getItem(syncSecretKey) || '';
+    if (!validSyncUrl.test(url) || !validSyncKey.test(key)) return openSyncSettings();
+    syncPending = true;
+    syncButton.disabled = true;
+    syncSettings.disabled = true;
+    syncFeedback.hidden = false;
+    syncConflicts.hidden = true;
+    syncStatus.textContent = 'Synchronizuję przepisy…';
+    try {
       const before = localStorage.getItem(KEY);
       const snapshot = load();
-      const key = settingsKey + ':' + url;
+      const baselineKey = syncUrlKey + ':' + url;
       const session = crypto.randomUUID();
-      const payload = {format, session, recipes:GoogleRecipes.flatten(snapshot),
-        baseline:JSON.parse(localStorage.getItem(key) || '{}')};
-      const target = new URL(url);
-      target.search = new URLSearchParams({session, origin:location.origin});
-      const popup = window.open(target.href, '_blank');
-      form.querySelector('#google-manual').hidden = false;
-      form.querySelector('#google-request').value = JSON.stringify(payload);
-      status.textContent = popup ? 'Łączenie z Google. Zaloguj się, jeśli Google o to poprosi.' : 'Przeglądarka zablokowała okno. Otwórz adres wdrożenia w osobnej karcie i użyj kodu wymiany.';
-      localStorage.setItem(settingsKey,url);
-      if (form.stopGoogleSync) form.stopGoogleSync();
-      let trustedSource, trustedOrigin;
-      function accept(result) {
-        if (result?.format !== format || result.session !== session ||
-            !Array.isArray(result.download) || !result.baseline) throw Error('Ten wynik nie pasuje do rozpoczętej synchronizacji.');
-        if (localStorage.getItem(KEY) !== before) throw Error('Przepisy w aplikacji zmieniły się. Rozpocznij ponownie synchronizację.');
-        GoogleRecipes.apply(snapshot,result.download,id);
-        localStorage.setItem(KEY,JSON.stringify(snapshot));
-        state=snapshot;
-        localStorage.setItem(key,JSON.stringify(result.baseline));
-        popup?.close();
-        closeForm();
-        render();
-        toast(`Synchronizacja zakończona. Wysłano ${result.uploaded}, pobrano ${result.download.length}.`);
+      const request = {format:syncFormat,session,recipes:GoogleRecipes.flatten(snapshot),
+        baseline:JSON.parse(localStorage.getItem(baselineKey) || '{}')};
+      const result = await runSync(url,request,key,policy);
+      if (Array.isArray(result?.conflicts)) {
+        syncStatus.textContent = 'Zmienione po obu stronach: ' + result.conflicts.join(', ') + '. Wybierz wersję.';
+        syncConflicts.hidden = false;
+        return;
       }
-      function receive(event) {
-        if (!form.isConnected || event.data?.session !== session) return;
-        if (event.data.type === 'kuchnia-ready' &&
-            /^https:\/\/(script\.google\.com|[\w-]+\.googleusercontent\.com)$/.test(event.origin)) {
-          trustedSource = event.source;
-          trustedOrigin = event.origin;
-          trustedSource.postMessage({type:'kuchnia-request',session,payload,auto:true},trustedOrigin);
-        }
-        if (event.data.type === 'kuchnia-result' && event.source === trustedSource && event.origin === trustedOrigin) {
-          try { accept(event.data.payload); } catch (error) { status.textContent = error.message; }
-        }
-      }
-      window.addEventListener('message',receive);
-      form.stopGoogleSync = () => window.removeEventListener('message',receive);
-      form.querySelector('#google-apply').onclick = () => {
-        try { accept(JSON.parse(form.querySelector('#google-response').value)); }
-        catch (error) { status.textContent = error instanceof SyntaxError ? 'Wklej pełny wynik z Apps Script.' : error.message; }
-      };
-    });
-    if (savedUrl) document.querySelector('#edit-form').requestSubmit();
-  });
+      if (result?.format !== syncFormat || result.session !== session ||
+          !Array.isArray(result.download) || !result.baseline) throw Error('Google zwrócił nieprawidłowy wynik.');
+      if (localStorage.getItem(KEY) !== before) throw Error('Przepisy zmieniły się podczas synchronizacji. Naciśnij ↻ jeszcze raz.');
+      GoogleRecipes.apply(snapshot,result.download,id);
+      localStorage.setItem(KEY,JSON.stringify(snapshot));
+      state = snapshot;
+      localStorage.setItem(baselineKey,JSON.stringify(result.baseline));
+      render();
+      syncStatus.textContent = `Pobrano ${result.download.length}, wysłano ${result.uploaded}.`;
+    } catch (error) {
+      syncStatus.textContent = error.message;
+    } finally {
+      syncPending = false;
+      syncButton.disabled = false;
+      syncSettings.disabled = false;
+    }
+  }
+
+  syncButton.addEventListener('click', () => syncRecipes());
+  syncSettings.addEventListener('click',openSyncSettings);
+  document.querySelector('#google-sync-sheet').addEventListener('click',() => syncRecipes('sheet'));
+  document.querySelector('#google-sync-app').addEventListener('click',() => syncRecipes('app'));
   if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(()=>{});
   render();
 })();
