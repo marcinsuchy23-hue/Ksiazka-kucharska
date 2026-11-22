@@ -50,6 +50,11 @@
     .prep-list th,.prep-list td {text-align:left;overflow-wrap:anywhere;padding:9px;border-bottom:1px solid var(--line)}
     .prep-list th[scope=col] {color:var(--muted);font-size:13px}
     .prep-list button {text-align:left}
+    .prep-table-scroll {overflow-x:auto}
+    .prep-index-table {min-width:690px}
+    .prep-index-table td {vertical-align:top;white-space:pre-wrap}
+    .prep-index-table th:first-child {min-width:125px}
+    .prep-index-table th:nth-child(2),.prep-index-table th:nth-child(3) {min-width:85px}
     .prep-numbers {display:flex;gap:18px;flex-wrap:wrap}
     .prep-numbers strong {display:block;margin-top:5px;color:var(--green);font-size:25px}
     .baking-settings {flex-basis:100%}
@@ -211,21 +216,43 @@
       const query = input.value.trim().toLocaleLowerCase('pl');
       const matches = entries.filter(({book,category,recipe})=>recipeMatches(recipe,query) ||
         `${book.name} ${category.name}`.toLocaleLowerCase('pl').includes(query));
-      const preps = matches.filter(({recipe})=>recipe.kind==='prep-sv');
-      const originals = matches.filter(({recipe})=>recipe.kind!=='prep-sv');
-      results.innerHTML = `
-        ${preps.length ? `<section class="prep-list"><h2>Zapisane prepy</h2>
-          <table><thead><tr><th scope="col">Mięso i kawałek</th><th scope="col">Temperatura</th><th scope="col">Czas</th></tr></thead>
-            <tbody>${preps.map(({book,category,recipe})=>prepRow(book,category,recipe)).join('')}</tbody></table></section>` : ''}
-        ${originals.length ? `<section class="prep-list"><h2>Z istniejących przepisów</h2>
-          <div class="grid">${originals.map(({book,category,recipe},i)=>card(recipe.name,
-            `${book.name} · ${category.name}`,'🌡️',colors[i%colors.length],`recipe:${book.id}:${category.id}:${recipe.id}`,
-            'recipe-tile',recipe.photo||'',{size:recipe.tileTitleSize,weight:recipe.tileTitleWeight})).join('')}</div></section>` : ''}
-        ${matches.length ? '' : `<div class="empty"><h2>${query?'Brak wyników':'Brak wpisów sous-vide'}</h2><p>
-          ${query?'Spróbuj wpisać inną nazwę.':categories.length?'Dodaj prep, aby zapisać pierwszą temperaturę i czas.':'Utwórz książkę i dział, aby dodać prep.'}</p></div>`}`;
+      results.innerHTML = matches.length ? `<section class="prep-list">
+        <div class="prep-table-scroll" tabindex="0" role="region" aria-label="Tabela prep sous-vide">
+        <table class="prep-index-table"><thead><tr>
+          <th scope="col">Mięso i kawałek</th><th scope="col">Temperatura SV</th>
+          <th scope="col">Czas SV</th><th scope="col">Przed pakowaniem</th>
+          <th scope="col">Porcja / grubość</th><th scope="col">Po obróbce</th>
+        </tr></thead><tbody>${matches.map(({book,category,recipe})=>{
+          const prep = recipe.kind==='prep-sv' ? recipe.prep : null;
+          const parameters = prep ? {temperature:prepTemperature(recipe),duration:prep.duration} : readPrepParameters(recipe);
+          const values = [parameters?.temperature,parameters?.duration,prep?.before,prep?.size,prep?.after];
+          return `<tr><th scope="row"><button type="button" class="text-button"
+            data-action="recipe:${book.id}:${category.id}:${recipe.id}">${esc(recipe.name)}</button></th>
+            ${values.map(value=>`<td>${esc(value||'—')}</td>`).join('')}</tr>`;
+        }).join('')}</tbody></table></div></section>` :
+        `<div class="empty"><h2>${query?'Brak wyników':'Brak wpisów sous-vide'}</h2><p>
+          ${query?'Spróbuj wpisać inną nazwę.':categories.length?'Dodaj prep, aby zapisać pierwszą temperaturę i czas.':'Utwórz książkę i dział, aby dodać prep.'}</p></div>`;
     }
     input.addEventListener('input',refresh);
     refresh();
+  }
+
+  function readPrepParameters(recipe) {
+    const text = [recipe.name,recipe.description,
+      ...(recipe.sections||[]).flatMap(stage=>[stage.name,stage.instructions])].join('\n');
+    const pairs = new Map();
+    for (const line of text.split(/\r?\n/)) {
+      if (!/\bsv\b|\bsous[-–\s]+vide\b|kąpiel/iu.test(line)) continue;
+      const temperatures = [...line.matchAll(/(?<![\d.,+–−-])(\d{1,3}(?:[,.]\d+)?)\s*°\s*C(?![\p{L}\d])/giu)];
+      const durations = [...line.matchAll(/(?<![\d.,+–−-])\d+(?:[,.]\d+)?\s*(?:godz(?:in(?:a|y)?)?\.?|h|min(?:ut(?:a|y)?)?\.?)(?![\p{L}\d])/giu)];
+      if (temperatures.length!==1 || durations.length!==1 ||
+          /\d\s*[–−-]\s*\d/u.test(line)) continue;
+      const temperature = Number(temperatures[0][1].replace(',','.'));
+      if (temperature<=0 || temperature>100) continue;
+      const duration = durations[0][0].trim();
+      pairs.set(`${temperature}:${duration}`,{temperature:`${String(temperature).replace('.',',')} °C`,duration});
+    }
+    if (pairs.size===1) return pairs.values().next().value;
   }
 
   function choosePrepCategory() {
