@@ -64,7 +64,7 @@
   const KEY='domowa-kuchnia-v1';
   const colors=['#e7eee4','#f7e8dc','#eee8f4','#e5eef1','#f2ebd8','#f3e5e7'];
   const icons=['📖','🍃','🍲','🥣','🍰','🫙','🥗','🍋'];
-  let state=load(), route={type:'home'}, search='';
+  let state=load(), route={type:'home'}, search='', homeSearch='';
   const main=document.querySelector('#main');
   function load(){try{const d=JSON.parse(localStorage.getItem(KEY));return d&&Array.isArray(d.books)?d:{books:[]}}catch{return{books:[]}}}
   function save(){localStorage.setItem(KEY,JSON.stringify(state))}
@@ -84,7 +84,40 @@
   }
   function renderHome(){
     const books=state.books;
-    main.innerHTML=`<section class="page-head"><div><div class="eyebrow">Twoje domowe zbiory</div><h1 class="heading">Smaki, do których<br>chce się wracać.</h1><p class="subheading">Wszystkie Twoje przepisy w jednym, przytulnym miejscu.</p></div><button class="primary-button" data-action="new-book">＋ Dodaj książkę</button></section>${books.length?`<div class="grid">${books.map((b,i)=>`<div class="tile-edit-wrap">${card(b.name,`${b.categories.length} ${plural(b.categories.length,'dział','działy','działów')}`,icons[i%icons.length],colors[i%colors.length],`book:${b.id}`,'',b.photo||'',{size:b.tileTitleSize,weight:b.tileTitleWeight})}<button type="button" class="text-button tile-edit-link" data-action="edit-book:${b.id}">Edytuj nazwę i zdjęcie książki</button></div>`).join('')}</div>`:empty('Zacznij od swojej pierwszej książki','Utwórz książkę kucharską i poukładaj w niej przepisy tak, jak lubisz.','＋ Dodaj pierwszą książkę','new-book')}`;
+    main.innerHTML=`<section class="page-head"><div><div class="eyebrow">Twoje domowe zbiory</div><h1 class="heading">Smaki, do których<br>chce się wracać.</h1><p class="subheading">Wszystkie Twoje przepisy w jednym, przytulnym miejscu.</p></div><button class="primary-button" data-action="new-book">＋ Dodaj książkę</button></section>
+      <div class="toolbar"><input id="home-recipe-search" class="search" type="search"
+        aria-label="Szukaj przepisu we wszystkich książkach" placeholder="Szukaj przepisu we wszystkich książkach"
+        value="${esc(homeSearch)}"></div>
+      <div id="home-recipe-results" hidden></div>
+      <div id="home-books">${books.length?`<div class="grid">${books.map((b,i)=>`<div class="tile-edit-wrap">${card(b.name,`${b.categories.length} ${plural(b.categories.length,'dział','działy','działów')}`,icons[i%icons.length],colors[i%colors.length],`book:${b.id}`,'',b.photo||'',{size:b.tileTitleSize,weight:b.tileTitleWeight})}<button type="button" class="text-button tile-edit-link" data-action="edit-book:${b.id}">Edytuj nazwę i zdjęcie książki</button></div>`).join('')}</div>`:empty('Zacznij od swojej pierwszej książki','Utwórz książkę kucharską i poukładaj w niej przepisy tak, jak lubisz.','＋ Dodaj pierwszą książkę','new-book')}</div>`;
+    const input = main.querySelector('#home-recipe-search');
+    const results = main.querySelector('#home-recipe-results');
+    const bookList = main.querySelector('#home-books');
+    function refreshResults() {
+      const query = homeSearch.trim().toLocaleLowerCase('pl');
+      results.hidden = !query;
+      bookList.hidden = Boolean(query);
+      if (!query) {
+        results.replaceChildren();
+        return;
+      }
+      const matches = books.flatMap(book => book.categories.flatMap(category =>
+        category.recipes.filter(recipe => recipeMatches(recipe,query)).map(recipe => ({book,category,recipe}))));
+      results.innerHTML = matches.length ? `<div class="grid">${matches.map(({book,category,recipe},i) =>
+        card(recipe.name,`${book.name} · ${category.name}`,'📖',colors[i%colors.length],
+          `recipe:${book.id}:${category.id}:${recipe.id}`,'recipe-tile',recipe.photo||'',
+          {size:recipe.tileTitleSize,weight:recipe.tileTitleWeight})).join('')}</div>` :
+        '<div class="empty"><h2>Nie znaleziono przepisu</h2><p>Spróbuj wpisać inną nazwę.</p></div>';
+    }
+    input.addEventListener('input', () => {
+      homeSearch = input.value;
+      refreshResults();
+    });
+    refreshResults();
+  }
+
+  function recipeMatches(recipe,query) {
+    return `${recipe.name} ${recipe.description || ''}`.toLocaleLowerCase('pl').includes(query);
   }
   function renderBook(){const b=bookBy(route.book);if(!b){route={type:'home'};return renderHome()};
     main.innerHTML=`${crumb([{label:'Moja kuchnia',route:'home'}, {label:b.name}])}<section class="page-head"><div><div class="eyebrow">Książka kucharska</div><h1 class="heading">${esc(b.name)}</h1><p class="subheading">Wybierz dział albo dodaj nowy.</p></div><div class="top-actions"><button class="quiet-button" data-action="edit-book:${b.id}">Edytuj</button><button class="primary-button" data-action="new-category:${b.id}">＋ Dodaj dział</button></div></section>${b.categories.length?`<div class="grid">${b.categories.map((c,i)=>`<div class="tile-edit-wrap">${card(c.name,`${c.recipes.length} ${plural(c.recipes.length,'przepis','przepisy','przepisów')}`,icons[(i+1)%icons.length],colors[(i+2)%colors.length],`category:${b.id}:${c.id}`,'',c.photo||'',{size:c.tileTitleSize,weight:c.tileTitleWeight})}<button type="button" class="text-button tile-edit-link" data-action="edit-category:${b.id}:${c.id}">Edytuj dział i zdjęcie</button></div>`).join('')}</div>`:empty('Dodaj pierwszy dział','Działy pomagają uporządkować przepisy, na przykład na „Sosy”, „Zupy” albo „Ciasta”.','＋ Dodaj dział',`new-category:${b.id}`)}`;
@@ -95,7 +128,7 @@
     if (input) {
       const results = main.querySelector('#recipe-search-results');
       const refreshResults = () => {
-        const q=search.trim().toLocaleLowerCase('pl'), recipes=c.recipes.filter(r=>!q||`${r.name} ${r.description}`.toLocaleLowerCase('pl').includes(q));
+        const q=search.trim().toLocaleLowerCase('pl'), recipes=c.recipes.filter(r=>recipeMatches(r,q));
         results.innerHTML = recipes.length?`<div class="grid">${recipes.map((r,i)=>card(r.name,r.sections.length?`${r.sections.length} ${plural(r.sections.length,'etap','etapy','etapów')}`:'Otwórz przepis',['🍲','🥘','🍝','🥧','🥗','🍮'][i%6],colors[(i+1)%colors.length],`recipe:${b.id}:${c.id}:${r.id}`,'recipe-tile',r.photo||'',{size:r.tileTitleSize,weight:r.tileTitleWeight})).join('')}</div>`:`<div class="empty"><div class="empty-icon">⌕</div><h2>Nie znaleziono przepisu</h2><p>Spróbuj wpisać inną nazwę.</p></div>`;
       };
       input.addEventListener('input', () => {

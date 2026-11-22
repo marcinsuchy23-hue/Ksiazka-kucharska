@@ -1,4 +1,4 @@
-const CACHE='moja-kuchnia-v33';
+const CACHE='moja-kuchnia-v34';
 const FILES=['./','./index.html','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png','./apple-touch-icon.png','./tesseract.min.js','./worker.min.js','./tesseract-core-lstm.wasm.js','./tesseract-core-lstm.wasm','./pol.traineddata.gz'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
