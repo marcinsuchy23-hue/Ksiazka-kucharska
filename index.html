@@ -86,34 +86,41 @@
   function parseRecipeText(value){
     let raw=String(value||'').replace(/\r/g,'\n');
     raw=raw.replace(/\b(?:lista\s+)?składniki\s*:?/giu,'\nSkładniki\n').replace(/\b(?:sposób\s+przygotowania|przygotowanie|wykonanie|instrukcja)\s*:?/giu,'\nPrzygotowanie\n');
-    raw=raw.replace(/([^\n])\s+(?=\d+(?:[,.]\d+)?\s*(?:g|kg|mg|ml|l|dag|łyżecz(?:ka|ki|ek)|łyż(?:ka|ki|ek)|szkl(?:anka|anki|anek)|szt\.?|opak\.?|ząbk(?:i|ów))\s+)/giu,'$1\n');
-    const lines=raw.split(/\n+/).map(s=>s.replace(/^\s*[-•*·▪]+\s*/,'').trim()).filter(Boolean);
-    const plain=s=>s.normalize('NFD').replace(/\p{Diacritic}/gu,'').toLocaleLowerCase('pl').replace(/[:.]+$/,'').trim();
-    const isIng=s=>/^(skladniki|lista skladnikow|potrzebne skladniki|ingredients)$/.test(plain(s));
-    const isMethod=s=>/^(sposob przygotowania|przygotowanie|wykonanie|instrukcja|method|directions)$/.test(plain(s));
-    const quantity=/^(\d+(?:[,.]\d+)?|\d+\s*\/\s*\d+|\d+\s+\d+\s*\/\s*\d+)(?:\s*(?:g|kg|mg|ml|l|dag|łyżecz(?:ka|ki|ek)|łyż(?:ka|ki|ek)|szkl(?:anka|anki|anek)|szt\.?|opak\.?|ząbk(?:i|ów)?|puszk(?:a|i))?)\s+(.+)$/iu;
-    const isQuantity=s=>quantity.test(s);
-    const isStep=s=>/^(?:\d+[.)]\s*|(?:następnie|potem|wtedy|na koniec|wymieszaj|dodaj|wlej|wsyp|pokrój|gotuj|piecz|odstaw|ubij|połącz|zagnieć|przełóż|podawaj)\b)/iu.test(s);
-    const title=lines.shift()||'Przepis ze zdjęcia';let ingAt=-1,methodAt=-1;
-    lines.forEach((line,i)=>{if(isIng(line)&&ingAt<0)ingAt=i;if(isMethod(line)&&methodAt<0)methodAt=i});
-    const ingredients=[],instructions=[];
-    const add=line=>{const m=line.match(quantity);ingredients.push({amount:m?m[1].trim():'',name:(m?m[2]:line).trim()})};
-    if(ingAt>=0){
-      const end=methodAt>ingAt?methodAt:lines.length;
-      for(const line of lines.slice(ingAt+1,end))if(!isIng(line)&&!isMethod(line))line.split(/[;,]\s*(?=\d+(?:[,.]\d+)?(?:\s*(?:g|kg|ml|l|dag|łyż|szkl|szt|opak|ząbk))?\s+)/iu).filter(Boolean).forEach(add);
-    }else{
-      for(const line of lines)if(isQuantity(line))add(line);
-      if(ingredients.length>=2){}
-      else ingredients.length=0;
+    raw=raw.replace(/([^,\n])\s+(?=\d+(?:[,.]\d+)?\s*(?:g|kg|mg|ml|l|dag|łyżec?(?:zka|zki|zek)|łyż(?:ka|ki|ek)|szkl(?:anka|anki|anek)|szt\.?|opak\.?|ząbk(?:i|ów))\.?\s+)/giu,'$1\n');
+    const lines=raw.split(/\n+/).map(s=>s.replace(/^\s*[-•*·▪]+\s*/,'').trim().replace(/^[|/\\:;,. ]+|[| ]+$/g,'')).filter(s=>s&&!/^[\W_]{1,5}$/u.test(s)&&!/\b\d+\s*(?:tyg|tygodni|dni|godz)\b/iu.test(s));
+    const deaccent=s=>s.normalize('NFD').replace(/\p{Diacritic}/gu,'').toLocaleLowerCase('pl').replace(/[:.]+$/,'').trim();
+    const isIng=s=>/^(skladniki|lista skladnikow|potrzebne skladniki|ingredients)$/.test(deaccent(s));
+    const isMethod=s=>/^(sposob przygotowania|przygotowanie|wykonanie|instrukcja|method|directions)$/.test(deaccent(s));
+    const qty=/^(\d+(?:[,.]\d+)?|\d+\s*\/\s*\d+|\d+\s+\d+\s*\/\s*\d+)\s*((?:g|kg|mg|ml|l|dag|łyżeczka|łyżeczki|łyżeczek|łyżka|łyżki|łyżek|szklanka|szklanki|szklanek|szt\.?|opak\.?|ząbki|ząbków|puszka|puszki)?)[\s.·-]*([a-ząćęłńóśźż].*)$/iu;
+    const ingredient=s=>qty.test(s);
+    const isSentence=s=>s.length>100||/^(?:wszystkie|gotować|gotuj|wymieszaj|dodaj|wlej|wsyp|pokrój|połącz|zagnieć|przełóż|odstaw|ubij|piecz|podawaj|do wystudzonej|taką emulsję)\b/iu.test(s);
+    let body=lines.slice();
+    // Usuń początkowy tekst z interfejsu portalu społecznościowego, jeśli OCR go odczytał.
+    const titleIndex=body.findIndex(s=>/sos|ciasto|zupa|sałat|tort|chleb|kurczak|holendersk/i.test(s));
+    let name='Przepis ze zdjęcia';
+    if(titleIndex>=0){name=body[titleIndex].replace(/^[^a-ząćęłńóśźż]+/iu,'').trim();body.splice(0,titleIndex+1)}
+    else if(body.length){name=body.shift()}
+    const sections=[];let current=null,mode='ingredients',generalIngredients=[],generalInstructions=[];
+    const startSection=(sectionName)=>{current={name:sectionName,ingredients:[],instructions:''};sections.push(current)};
+    for(let i=0;i<body.length;i++){
+      let line=body[i].trim();if(!line)continue;
+      if(isIng(line)){mode='ingredients';if(!current||current.ingredients.length||current.instructions)startSection('Składniki');continue}
+      if(isMethod(line)){mode='method';if(!current||current.name==='Składniki')startSection('Przygotowanie');continue}
+      // Nazwy półproduktów są zwykle krótkimi nagłówkami; dwukropek jest częsty na zdjęciach.
+      const next=body[i+1]||'';
+      const heading=/^[\p{L}][\p{L}\s-]{1,38}:$/u.test(line)||(/^[\p{L}][\p{L}\s-]{1,32}$/u.test(line)&&ingredient(next));
+      if(heading){startSection(line.replace(/:$/,'').trim());mode='ingredients';continue}
+      const chunks=line.split(/[,;]\s*(?=\d+(?:[,.]\d+)?\s*(?:g|kg|ml|l|dag|łyż|szkl|szt|opak|ząbk)?\.?\s+)/iu).filter(Boolean);
+      let found=false;
+      for(const chunk of chunks){const m=chunk.match(qty);if(m){found=true;const target=current||{name:'Składniki',ingredients:[],instructions:''};if(!current){generalIngredients.push({amount:(m[1]+m[2]).trim(),name:m[3].trim()})}else current.ingredients.push({amount:(m[1]+m[2]).trim(),name:m[3].trim()})}}
+      if(!found&&!isSentence(line)&&ingredient(line)){const m=line.match(qty);if(m){if(current)current.ingredients.push({amount:(m[1]+m[2]).trim(),name:m[3].trim()});else generalIngredients.push({amount:(m[1]+m[2]).trim(),name:m[3].trim()});found=true}}
+      if(!found){if(current&&current.ingredients.length){current.instructions+=(current.instructions?'\n':'')+line}else if(mode==='method')generalInstructions.push(line);else if(!current)generalInstructions.push(line)}
     }
-    if(methodAt>=0)instructions.push(...lines.slice(methodAt+1).filter(line=>!isIng(line)&&!isMethod(line)));
-    else if(ingAt>=0)instructions.push(...lines.slice(ingAt+1).filter(line=>!isIng(line)&&!isMethod(line)));
-    else if(ingredients.length)instructions.push(...lines.filter(line=>!isQuantity(line)));
-    else instructions.push(...lines.filter(isStep));
-    const sections=[];if(ingredients.length)sections.push({name:'Składniki',ingredients,instructions:''});if(instructions.length)sections.push({name:'Przygotowanie',ingredients:[{amount:'',name:''}],instructions:instructions.join('\n')});
-    if(!sections.length)sections.push({name:'Składniki',ingredients:[{amount:'',name:lines[0]||''}],instructions:''});
-    const desc=lines.filter((line,i)=>i!==ingAt&&i!==methodAt&&!isIng(line)&&!isMethod(line)&&!isQuantity(line)&&!isStep(line));
-    return{name:title,description:desc.length&&desc[0].length<160?desc[0]:'',servings:4,sections}
+    if(generalIngredients.length)sections.unshift({name:'Składniki',ingredients:generalIngredients,instructions:generalInstructions.join('\n')});
+    const cleaned=sections.filter(s=>s.ingredients.length||s.instructions.trim());
+    if(!cleaned.length)cleaned.push({name:'Składniki',ingredients:[{amount:'',name:''}],instructions:body.join('\n')});
+    const desc='';
+    return{name,description:desc,servings:4,sections:cleaned}
   }
   function reviewOcrText(text,book,cat){const content=`<form id="edit-form" class="form"><p class="scan-help">Sprawdź i popraw odczytany tekst, zanim utworzymy szkic przepisu. Rozpoznawanie działa na tym urządzeniu; zdjęcie nie jest wysyłane do serwisu.</p><div class="field"><label for="ocr-transcription">Tekst ze zdjęcia</label><textarea id="ocr-transcription" name="text" style="min-height:260px" required>${esc(text)}</textarea></div><div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button><button class="primary-button">Dalej: popraw przepis</button></div></form>`;showForm('Sprawdź tekst ze zdjęcia',content,fd=>{const draft=parseRecipeText(String(fd.get('text')||''));recipeForm(book,cat,draft,true)})}
   async function scanPhoto(file,book,cat){const imageUrl=URL.createObjectURL(file);showForm('Czytam zdjęcie',`<img class="scan-preview" src="${imageUrl}" alt="Wybrane zdjęcie przepisu"><div class="progress-track"><span style="width:30%"></span></div><p class="scan-status">Rozpoznaję tekst na urządzeniu… Przy pierwszym użyciu może to chwilę potrwać.</p><p class="scan-help" style="text-align:center">Najlepszy efekt dają wyraźne, równo ułożone zdjęcia drukowanego przepisu.</p>`);let worker;try{if(!window.Tesseract)throw new Error('Brak plików OCR');worker=await Tesseract.createWorker('pol',1,{workerPath:new URL('./worker.min.js',location.href).href,corePath:new URL('./tesseract-core-lstm.wasm.js',location.href).href,langPath:new URL('./',location.href).href,gzip:true});const result=await worker.recognize(file);const text=result.data.text||'';await worker.terminate();worker=null;URL.revokeObjectURL(imageUrl);if(!text.trim()){closeForm();toast('Nie udało się odczytać tekstu. Spróbuj wyraźniejszego zdjęcia.');return}reviewOcrText(text,book,cat)}catch(error){if(worker)try{await worker.terminate()}catch{}URL.revokeObjectURL(imageUrl);closeForm();toast('Nie udało się odczytać zdjęcia. Otwórz aplikację w przeglądarce przez plik startowy i spróbuj ponownie.')}}
