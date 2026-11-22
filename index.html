@@ -31,13 +31,14 @@
 <div class="shell">
   <header class="topbar">
     <a class="brand" href="#" id="home-link"><span class="brandmark">✳</span><span class="brand-name">Moja kuchnia</span></a>
-    <div class="top-actions"><button class="quiet-button" id="import-button" title="Wczytaj kopię zapasową">↥ <span class="backup-label">Wczytaj kopię</span></button><button class="quiet-button" id="export-button" title="Zapisz kopię zapasową">↧ <span class="backup-label">Kopia zapasowa</span></button><input id="import-file" type="file" accept="application/json,.json" class="hidden"></div>
+    <div class="top-actions"><button class="quiet-button" id="google-sync" title="Synchronizuj z Arkuszem Google">Google</button><button class="quiet-button" id="import-button" title="Wczytaj kopię zapasową">↥ <span class="backup-label">Wczytaj kopię</span></button><button class="quiet-button" id="export-button" title="Zapisz kopię zapasową">↧ <span class="backup-label">Kopia zapasowa</span></button><input id="import-file" type="file" accept="application/json,.json" class="hidden"></div>
   </header>
   <main id="main" class="main"></main>
   <p class="footer-note">Twoje przepisy są zapisane na tym urządzeniu.</p>
 </div>
 <div id="overlay-root"></div><div id="toast-root"></div>
 <script src="./tesseract.min.js"></script>
+<script src="./google-sync.js"></script>
 <script>
 (()=>{
   const KEY='domowa-kuchnia-v1';
@@ -168,7 +169,7 @@
   function navigate(value){const p=value.split(':');if(p[0]==='home'){route={type:'home'};search=''}else if(p[0]==='book'){route={type:'book',book:p[1]}}else if(p[0]==='category'){route={type:'category',book:p[1],category:p[2]};search=''}else if(p[0]==='recipe'){route={type:'recipe',book:p[1],category:p[2],recipe:p[3]}}render();window.scrollTo(0,0)}
   function toast(msg){const el=document.querySelector('#toast-root');el.innerHTML=`<div class="notice">${esc(msg)}</div>`;setTimeout(()=>el.innerHTML='',2600)}
   function showForm(title,content,onSave){document.querySelector('#overlay-root').innerHTML=`<div class="form-overlay"><section class="dialog" role="dialog" aria-modal="true" aria-label="${esc(title)}"><header class="dialog-head"><div><h2>${esc(title)}</h2><p class="dialog-intro">Zmiany zapisują się na tym urządzeniu.</p></div><button type="button" class="icon-button" data-close aria-label="Zamknij">✕</button></header>${content}</section></div>`;const over=document.querySelector('.form-overlay');over.addEventListener('click',e=>{if(e.target===over||e.target.closest('button[data-close]'))closeForm()});const form=document.querySelector('#edit-form');form?.addEventListener('submit',e=>{e.preventDefault();onSave(new FormData(form),form)})}
-  function closeForm(){document.querySelector('#overlay-root').innerHTML=''}
+  function closeForm(){document.querySelector('#edit-form')?.stopGoogleSync?.();document.querySelector('#overlay-root').innerHTML=''}
   function bookForm(book=null){
     const existing=Boolean(book);
     const content='<form id="edit-form" class="form"><div class="field"><label for="item-name">Nazwa książki kucharskiej</label><input id="item-name" name="name" required maxlength="70" value="'+esc(book?.name||'')+'" placeholder="np. Moje ulubione przepisy"></div><div class="field"><label for="book-photo">Zdjęcie książki</label><input id="book-photo" type="file" accept="image/*"><span class="scan-help">Wybierz zdjęcie z galerii albo zrób je aparatem. Pojawi się na kafelku książki.</span><div class="photo-preview-box" id="book-photo-preview">'+(book?.photo?'<img class="recipe-photo-preview" src="'+esc(book.photo)+'" alt="Podgląd zdjęcia książki">':'<span class="scan-help">Nie dodano jeszcze zdjęcia.</span>')+'</div>'+(book?.photo?'<label><input type="checkbox" name="removePhoto"> Usuń obecne zdjęcie przy zapisie</label>':'')+'</div>'+tileStyleFields(book)+'<div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button><button class="primary-button">'+(existing?'Zapisz zmiany':'Utwórz książkę')+'</button></div></form>';
@@ -208,6 +209,77 @@
   document.querySelector('#export-button').addEventListener('click',()=>{const blob=new Blob([JSON.stringify({format:'domowa-kuchnia',version:1,exportedAt:new Date().toISOString(),...state},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='moja-ksiazka-kucharska.json';a.click();URL.revokeObjectURL(a.href);toast('Kopia zapasowa pobrana')});
   document.querySelector('#import-button').addEventListener('click',()=>document.querySelector('#import-file').click());
   document.querySelector('#import-file').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{const data=JSON.parse(await file.text());if(!data||!Array.isArray(data.books)||!data.books.every(b=>typeof b.name==='string'&&Array.isArray(b.categories)))throw new Error('bad');if(confirm('Wczytać kopię zapasową? Obecne przepisy zostaną zastąpione zawartością kopii.')){state={books:data.books};save();navigate('home');toast('Kopia zapasowa wczytana')}}catch{toast('Nie udało się wczytać tego pliku')}e.target.value=''});
+  document.querySelector('#google-sync').addEventListener('click', () => {
+    const settingsKey = 'domowa-kuchnia-apps-script';
+    const format = 'moja-kuchnia-sync-1';
+    showForm('Synchronizacja z Arkuszem Google', `
+      <form id="edit-form" class="form">
+        <div class="field"><label for="google-url">Adres wdrożenia Apps Script (końcówka /exec)</label>
+          <input id="google-url" name="url" required value="${esc(localStorage.getItem(settingsKey) || '')}"></div>
+        <div class="form-actions"><button class="primary-button">Otwórz synchronizację</button></div>
+        <p class="scan-help" id="google-status" role="status"></p>
+        <details id="google-manual" hidden>
+          <summary>Ręczne przekazanie danych, gdy okna się nie połączą</summary>
+          <div class="field"><label for="google-request">Skopiuj do okna Apps Script</label>
+            <textarea id="google-request" readonly></textarea></div>
+          <div class="field"><label for="google-response">Wklej wynik z Apps Script</label>
+            <textarea id="google-response"></textarea></div>
+          <button type="button" class="quiet-button" id="google-apply">Odbierz wynik</button>
+        </details>
+      </form>`, (data, form) => {
+      const status = form.querySelector('#google-status');
+      const url = String(data.get('url')).trim();
+      if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url)) {
+        status.textContent = 'Wklej pełny adres wdrożenia Apps Script zakończony /exec.';
+        return;
+      }
+      const before = localStorage.getItem(KEY);
+      const snapshot = load();
+      const key = settingsKey + ':' + url;
+      const session = crypto.randomUUID();
+      const payload = {format, session, recipes:GoogleRecipes.flatten(snapshot),
+        baseline:JSON.parse(localStorage.getItem(key) || '{}')};
+      const target = new URL(url);
+      target.search = new URLSearchParams({session, origin:location.origin});
+      const popup = window.open(target.href, '_blank');
+      form.querySelector('#google-manual').hidden = false;
+      form.querySelector('#google-request').value = JSON.stringify(payload);
+      status.textContent = popup ? 'Zatwierdź synchronizację w oknie Google.' : 'Przeglądarka zablokowała okno. Otwórz adres wdrożenia w osobnej karcie i użyj kodu wymiany.';
+      localStorage.setItem(settingsKey,url);
+      if (form.stopGoogleSync) form.stopGoogleSync();
+      let trustedSource, trustedOrigin;
+      function accept(result) {
+        if (result?.format !== format || result.session !== session ||
+            !Array.isArray(result.download) || !result.baseline) throw Error('Ten wynik nie pasuje do rozpoczętej synchronizacji.');
+        if (localStorage.getItem(KEY) !== before) throw Error('Przepisy w aplikacji zmieniły się. Rozpocznij ponownie synchronizację.');
+        GoogleRecipes.apply(snapshot,result.download,id);
+        localStorage.setItem(KEY,JSON.stringify(snapshot));
+        state=snapshot;
+        localStorage.setItem(key,JSON.stringify(result.baseline));
+        closeForm();
+        render();
+        toast(`Synchronizacja zakończona. Wysłano ${result.uploaded}, pobrano ${result.download.length}.`);
+      }
+      function receive(event) {
+        if (!form.isConnected || event.data?.session !== session) return;
+        if (event.data.type === 'kuchnia-ready' &&
+            /^https:\/\/(script\.google\.com|[\w-]+\.googleusercontent\.com)$/.test(event.origin)) {
+          trustedSource = event.source;
+          trustedOrigin = event.origin;
+          trustedSource.postMessage({type:'kuchnia-request',session,payload},trustedOrigin);
+        }
+        if (event.data.type === 'kuchnia-result' && event.source === trustedSource && event.origin === trustedOrigin) {
+          try { accept(event.data.payload); } catch (error) { status.textContent = error.message; }
+        }
+      }
+      window.addEventListener('message',receive);
+      form.stopGoogleSync = () => window.removeEventListener('message',receive);
+      form.querySelector('#google-apply').onclick = () => {
+        try { accept(JSON.parse(form.querySelector('#google-response').value)); }
+        catch (error) { status.textContent = error instanceof SyntaxError ? 'Wklej pełny wynik z Apps Script.' : error.message; }
+      };
+    });
+  });
   if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(()=>{});
   render();
 })();
