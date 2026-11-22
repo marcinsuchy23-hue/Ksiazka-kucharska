@@ -84,39 +84,36 @@
   function readQuantity(text){let m=String(text||'').match(/^\s*(\d+)\s+(\d+)\/(\d+)(.*)$/);if(m)return{value:Number(m[1])+Number(m[2])/Number(m[3]),tail:m[4]};m=String(text||'').match(/^\s*(\d+)\/(\d+)(.*)$/);if(m)return{value:Number(m[1])/Number(m[2]),tail:m[3]};m=String(text||'').match(/^\s*(\d+)?\s*([¼½¾⅓⅔⅛⅜⅝⅞])(.*)$/);if(m)return{value:Number(m[1]||0)+fractions[m[2]],tail:m[3]};m=String(text||'').match(/^\s*(\d+(?:[,.]\d+)?)(.*)$/);return m?{value:Number(m[1].replace(',','.')),tail:m[2]}:null}
   function scaleAmount(value,target,base){if(base<=0)return value;const range=String(value||'').match(/^\s*(\d+(?:[,.]\d+)?)\s*([-–—])\s*(\d+(?:[,.]\d+)?)(.*)$/);const factor=target/base;const fmt=n=>String(Math.round(n*factor*100)/100).replace('.',',');if(range)return `${fmt(Number(range[1].replace(',','.')))}${range[2]}${fmt(Number(range[3].replace(',','.')))}${range[4]}`;const parsed=readQuantity(value);if(!parsed||!Number.isFinite(parsed.value))return value;return `${fmt(parsed.value)}${parsed.tail}`}
   function parseRecipeText(value){
-    let raw=String(value||'').replace(/\r/g,'\n');
-    raw=raw.replace(/([^\n])\s+(?=(?:składniki|skladniki|lista składników|lista skladnikow|przygotowanie|sposób przygotowania|sposob przygotowania|wykonanie)\s*:)/giu,'$1\n');
-    raw=raw.replace(/([^\n])\s+(?=\d+(?:[,.]\d+)?\s*(?:g|kg|mg|ml|l|dag|łyżeczk(?:a|i|ę)|łyżk(?:a|i|ę)|szklank(?:a|i|ę)|szt\.?|opak\.?|ząbk(?:i|ów))\s+)/giu,'$1\n');
-    const lines=raw.split(/\n+/).map(s=>s.replace(/^\s*[-•*·▪]+\s*/,'').trim()).filter(Boolean);
-    const plain=s=>s.normalize('NFD').replace(/\p{Diacritic}/gu,'').toLocaleLowerCase('pl').replace(/[:.]+$/,'').trim();
-    const isIng=s=>/^(skladniki|lista skladnikow|potrzebne skladniki|ingredients)(?:\s+(?:na|do)\b.*)?$/.test(plain(s));
-    const isMethod=s=>/^(sposob przygotowania|przygotowanie|wykonanie|instrukcja|method|directions)(?:\s*:.*)?$/.test(plain(s));
-    const amountRe=/^((?:\d+(?:[,.]\d+)?|\d+\s*\/\s*\d+|\d+\s+\d+\s*\/\s*\d+)(?:\s*(?:g|kg|mg|ml|l|dag|łyżecz(?:ka|ki|ek)|łyż(?:ka|ki|ek)|szkl(?:anka|anki|anek)|szt\.?|opak\.?|ząbk(?:i|ów)?|puszk(?:a|i))?)[\s.·-]+)(.+)$/iu;
-    const isAmount=s=>amountRe.test(s);
-    const isStep=s=>/^(?:\d+[.)]\s*|(?:następnie|potem|wtedy|na koniec|wymieszaj|dodaj|wlej|wsyp|pokrój|gotuj|piec|piecz|odstaw|ubij|połącz|zagnieć|przełóż|podawaj)\b)/iu.test(s);
-    const title=lines.shift()||'Przepis ze zdjęcia';
-    let ingAt=-1,methodAt=-1;
+    let raw=String(value||'').replace(/\\r/g,'\\n');
+    raw=raw.replace(/\\b(?:lista\\s+)?składniki\\s*:?/giu,'\\nSkładniki\\n').replace(/\\b(?:sposób\\s+przygotowania|przygotowanie|wykonanie|instrukcja)\\s*:?/giu,'\\nPrzygotowanie\\n');
+    raw=raw.replace(/([^\\n])\\s+(?=\\d+(?:[,.]\\d+)?\\s*(?:g|kg|mg|ml|l|dag|łyżecz(?:ka|ki|ek)|łyż(?:ka|ki|ek)|szkl(?:anka|anki|anek)|szt\\.?|opak\\.?|ząbk(?:i|ów))\\s+)/giu,'$1\\n');
+    const lines=raw.split(/\\n+/).map(s=>s.replace(/^\\s*[-•*·▪]+\\s*/,'').trim()).filter(Boolean);
+    const plain=s=>s.normalize('NFD').replace(/\\p{Diacritic}/gu,'').toLocaleLowerCase('pl').replace(/[:.]+$/,'').trim();
+    const isIng=s=>/^(skladniki|lista skladnikow|potrzebne skladniki|ingredients)$/.test(plain(s));
+    const isMethod=s=>/^(sposob przygotowania|przygotowanie|wykonanie|instrukcja|method|directions)$/.test(plain(s));
+    const quantity=/^(\\d+(?:[,.]\\d+)?|\\d+\\s*\\/\\s*\\d+|\\d+\\s+\\d+\\s*\\/\\s*\\d+)(?:\\s*(?:g|kg|mg|ml|l|dag|łyżecz(?:ka|ki|ek)|łyż(?:ka|ki|ek)|szkl(?:anka|anki|anek)|szt\\.?|opak\\.?|ząbk(?:i|ów)?|puszk(?:a|i))?)\\s+(.+)$/iu;
+    const isQuantity=s=>quantity.test(s);
+    const isStep=s=>/^(?:\\d+[.)]\\s*|(?:następnie|potem|wtedy|na koniec|wymieszaj|dodaj|wlej|wsyp|pokrój|gotuj|piecz|odstaw|ubij|połącz|zagnieć|przełóż|podawaj)\\b)/iu.test(s);
+    const title=lines.shift()||'Przepis ze zdjęcia';let ingAt=-1,methodAt=-1;
     lines.forEach((line,i)=>{if(isIng(line)&&ingAt<0)ingAt=i;if(isMethod(line)&&methodAt<0)methodAt=i});
     const ingredients=[],instructions=[];
-    const addIngredient=line=>{const m=line.match(amountRe);ingredients.push({amount:m?m[1].trim().replace(/[.·-]+$/,'' ):'',name:(m?m[2]:line).trim()})};
+    const add=line=>{const m=line.match(quantity);ingredients.push({amount:m?m[1].trim():'',name:(m?m[2]:line).trim()})};
     if(ingAt>=0){
       const end=methodAt>ingAt?methodAt:lines.length;
-      for(const line of lines.slice(ingAt+1,end))if(!isIng(line)&&!isMethod(line))addIngredient(line);
+      for(const line of lines.slice(ingAt+1,end))if(!isIng(line)&&!isMethod(line))line.split(/[;,]\\s*(?=\\d+(?:[,.]\\d+)?(?:\\s*(?:g|kg|ml|l|dag|łyż|szkl|szt|opak|ząbk))?\\s+)/iu).filter(Boolean).forEach(add);
     }else{
-      const candidates=lines.filter(line=>isAmount(line)||/^(?:szczypta|do smaku|kilka|garść|garście)\b/iu.test(line));
-      if(candidates.length>=2) candidates.forEach(addIngredient);
-      else lines.filter(line=>isStep(line)).forEach(line=>instructions.push(line));
+      for(const line of lines)if(isQuantity(line))add(line);
+      if(ingredients.length>=2){}
+      else ingredients.length=0;
     }
     if(methodAt>=0)instructions.push(...lines.slice(methodAt+1).filter(line=>!isIng(line)&&!isMethod(line)));
     else if(ingAt>=0)instructions.push(...lines.slice(ingAt+1).filter(line=>!isIng(line)&&!isMethod(line)));
-    else if(ingredients.length)instructions.push(...lines.filter(line=>!isAmount(line)&&!/^(?:szczypta|do smaku|kilka|garść|garście)\b/iu.test(line)));
-    const sections=[];
-    if(ingredients.length)sections.push({name:'Składniki',ingredients,instructions:''});
-    if(instructions.length)sections.push({name:'Przygotowanie',ingredients:[{amount:'',name:''}],instructions:instructions.join('\n')});
+    else if(ingredients.length)instructions.push(...lines.filter(line=>!isQuantity(line)));
+    else instructions.push(...lines.filter(isStep));
+    const sections=[];if(ingredients.length)sections.push({name:'Składniki',ingredients,instructions:''});if(instructions.length)sections.push({name:'Przygotowanie',ingredients:[{amount:'',name:''}],instructions:instructions.join('\\n')});
     if(!sections.length)sections.push({name:'Składniki',ingredients:[{amount:'',name:lines[0]||''}],instructions:''});
-    const descLines=lines.filter((line,i)=>i!==ingAt&&i!==methodAt&&!isAmount(line)&&!isStep(line)&&!isIng(line)&&!isMethod(line));
-    const description=descLines.length&&descLines[0].length<160?descLines[0]:'';
-    return{name:title,description,servings:4,sections}
+    const desc=lines.filter((line,i)=>i!==ingAt&&i!==methodAt&&!isIng(line)&&!isMethod(line)&&!isQuantity(line)&&!isStep(line));
+    return{name:title,description:desc.length&&desc[0].length<160?desc[0]:'',servings:4,sections}
   }
   function reviewOcrText(text,book,cat){const content=`<form id="edit-form" class="form"><p class="scan-help">Sprawdź i popraw odczytany tekst, zanim utworzymy szkic przepisu. Rozpoznawanie działa na tym urządzeniu; zdjęcie nie jest wysyłane do serwisu.</p><div class="field"><label for="ocr-transcription">Tekst ze zdjęcia</label><textarea id="ocr-transcription" name="text" style="min-height:260px" required>${esc(text)}</textarea></div><div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button><button class="primary-button">Dalej: popraw przepis</button></div></form>`;showForm('Sprawdź tekst ze zdjęcia',content,fd=>{const draft=parseRecipeText(String(fd.get('text')||''));recipeForm(book,cat,draft,true)})}
   async function scanPhoto(file,book,cat){const imageUrl=URL.createObjectURL(file);showForm('Czytam zdjęcie',`<img class="scan-preview" src="${imageUrl}" alt="Wybrane zdjęcie przepisu"><div class="progress-track"><span style="width:30%"></span></div><p class="scan-status">Rozpoznaję tekst na urządzeniu… Przy pierwszym użyciu może to chwilę potrwać.</p><p class="scan-help" style="text-align:center">Najlepszy efekt dają wyraźne, równo ułożone zdjęcia drukowanego przepisu.</p>`);let worker;try{if(!window.Tesseract)throw new Error('Brak plików OCR');worker=await Tesseract.createWorker('pol',1,{workerPath:new URL('./worker.min.js',location.href).href,corePath:new URL('./tesseract-core-lstm.wasm.js',location.href).href,langPath:new URL('./',location.href).href,gzip:true});const result=await worker.recognize(file);const text=result.data.text||'';await worker.terminate();worker=null;URL.revokeObjectURL(imageUrl);if(!text.trim()){closeForm();toast('Nie udało się odczytać tekstu. Spróbuj wyraźniejszego zdjęcia.');return}reviewOcrText(text,book,cat)}catch(error){if(worker)try{await worker.terminate()}catch{}URL.revokeObjectURL(imageUrl);closeForm();toast('Nie udało się odczytać zdjęcia. Otwórz aplikację w przeglądarce przez plik startowy i spróbuj ponownie.')}}
