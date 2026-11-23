@@ -320,6 +320,7 @@
   }
 
   function hasPrepTile() {
+    if (state.prepTile.hidden) return false;
     return Boolean(state.prepTile.name || state.prepEntries.length || state.books.some(book=>
       book.categories.some(category=>category.recipes.some(recipe=>recipeBelongsToPrep(recipe,category)))));
   }
@@ -1247,6 +1248,7 @@
       </div>
       ${tileStyleFields(item)}
       ${book?'<div><button type="button" class="danger-button" id="delete-book">Usuń książkę</button></div>':''}
+      ${prep&&hasPrepTile()?'<div><button type="button" class="danger-button" id="delete-prep-tile">Usuń kafelek</button></div>':''}
       <p class="scan-help" id="book-form-message" role="status" hidden></p>
       <div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button>
         <button type="submit" class="primary-button">${existing?'Zapisz zmiany':'Utwórz książkę'}</button></div>
@@ -1303,6 +1305,21 @@
       if (remove) remove.checked=false;
     });
     formCleanup = ()=>{if(previewUrl) URL.revokeObjectURL(previewUrl);};
+    document.querySelector('#delete-prep-tile')?.addEventListener('click',()=>{
+      if (!confirm('Usunąć kafelek Prep ze strony głównej? Zapisane pozycje zostaną zachowane.')) return;
+      const previous = state.prepTile;
+      state.prepTile = {...previous,hidden:true};
+      try {
+        save();
+      } catch {
+        state.prepTile = previous;
+        toast('Nie udało się usunąć kafelka.');
+        return;
+      }
+      closeForm();
+      render();
+      toast('Kafelek usunięty');
+    });
     document.querySelector('#delete-book')?.addEventListener('click',()=>{
       const departments = book.categories.length;
       const recipes = book.categories.reduce((sum,category)=>sum+category.recipes.length,0);
