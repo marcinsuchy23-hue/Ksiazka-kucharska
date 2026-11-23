@@ -59,7 +59,12 @@
     .prep-list {margin:0 0 20px}
     .custom-table-actions {flex-wrap:wrap}
     .custom-table th,.custom-table td {min-width:100px;white-space:pre-wrap;vertical-align:top}
-    .custom-table-row-action {min-width:0!important;width:1%}
+    .custom-table .custom-table-row-action {min-width:34px;width:34px;padding:3px;white-space:nowrap;vertical-align:top}
+    .custom-table-row-edit {
+      display:grid;place-items:center;width:28px;height:30px;padding:0;border:0;border-radius:7px;
+      background:transparent;color:var(--green)
+    }
+    .custom-table-row-edit svg {width:17px;height:17px}
     .custom-table-visually-hidden {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
     .custom-column-field {display:flex;gap:8px;margin-bottom:8px}
     .custom-column-field input {min-width:0}
@@ -1760,7 +1765,9 @@
         <table class="custom-table"><thead><tr>${table.columns.map(column=>`<th scope="col">${esc(column.label)}</th>`).join('')}
           <th scope="col" class="custom-table-row-action"><span class="custom-table-visually-hidden">Edycja</span></th></tr></thead>
           <tbody>${rows.map(row=>`<tr>${table.columns.map(column=>`<td>${esc(row.cells[column.id]||'—')}</td>`).join('')}
-            <td class="custom-table-row-action"><button type="button" class="text-button" data-action="edit-table-row:${table.id}:${row.id}">Edytuj</button></td>
+            <td class="custom-table-row-action"><button type="button" class="custom-table-row-edit" aria-label="Edytuj wiersz" title="Edytuj wiersz" data-action="edit-table-row:${table.id}:${row.id}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5 4 4M4 20l4.5-1 12-12a2 2 0 0 0-4-4l-12 12Z"/></svg>
+            </button></td>
           </tr>`).join('')}</tbody>
         </table></div>` : `<div class="empty"><h2>${query?'Brak wyników':'Tabela jest pusta'}</h2></div>`;
     }
