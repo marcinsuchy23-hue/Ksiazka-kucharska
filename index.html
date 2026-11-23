@@ -210,16 +210,18 @@
   function renderHome(){
     const books=state.books;
     const prepTile=state.prepTile;
+    const showPrep=hasPrepTile();
+    const hasTiles=showPrep || books.length || state.tables.length;
     main.innerHTML=`<section class="page-head"><div><div class="eyebrow">Twoje domowe zbiory</div><h1 class="heading">Smaki, do których<br>chce się wracać.</h1><p class="subheading">Wszystkie Twoje przepisy w jednym, przytulnym miejscu.</p></div><button type="button" class="primary-button" data-action="add-home-item">＋ Dodaj</button></section>
       <div class="toolbar"><input id="home-recipe-search" class="search" type="search"
         aria-label="Szukaj przepisu we wszystkich książkach" placeholder="Szukaj przepisu we wszystkich książkach"
         value="${esc(homeSearch)}"></div>
       <div id="home-recipe-results" hidden></div>
-      <div id="home-books"><div class="grid"><div class="tile-edit-wrap">${card(prepTile.name||'Prep sous-vide','Temperatury i czasy obróbki','🌡️',colors[2],
+      <div id="home-books">${hasTiles?`<div class="grid">${showPrep?`<div class="tile-edit-wrap">${card(prepTile.name||'Prep sous-vide','Temperatury i czasy obróbki','🌡️',colors[2],
         'prep-index','',prepTile.photo||'',{size:prepTile.tileTitleSize,weight:prepTile.tileTitleWeight})}
-        <button type="button" class="text-button tile-edit-link" data-action="edit-prep-tile">Edytuj kafelek Prep</button></div>${state.tables.map((table,i)=>`<div class="tile-edit-wrap">
+        <button type="button" class="text-button tile-edit-link" data-action="edit-prep-tile">Edytuj kafelek Prep</button></div>`: ''}${state.tables.map((table,i)=>`<div class="tile-edit-wrap">
         ${card(table.name,'Tabela','📋',colors[(i+3)%colors.length],`custom-table:${table.id}`,'',table.photo||'')}
-        <button type="button" class="text-button tile-edit-link" data-action="edit-custom-table:${table.id}">Edytuj tabelę</button></div>`).join('')}${books.map((b,i)=>`<div class="tile-edit-wrap">${card(b.name,`${b.categories.length} ${plural(b.categories.length,'dział','działy','działów')}`,icons[i%icons.length],colors[i%colors.length],`book:${b.id}`,'',b.photo||'',{size:b.tileTitleSize,weight:b.tileTitleWeight})}<button type="button" class="text-button tile-edit-link" data-action="edit-book:${b.id}">Edytuj nazwę i zdjęcie książki</button></div>`).join('')}</div>${books.length?'':empty('Zacznij od swojej pierwszej książki','Utwórz książkę kucharską i poukładaj w niej przepisy tak, jak lubisz.','＋ Dodaj pierwszą książkę','new-book')}</div>`;
+        <button type="button" class="text-button tile-edit-link" data-action="edit-custom-table:${table.id}">Edytuj tabelę</button></div>`).join('')}${books.map((b,i)=>`<div class="tile-edit-wrap">${card(b.name,`${b.categories.length} ${plural(b.categories.length,'dział','działy','działów')}`,icons[i%icons.length],colors[i%colors.length],`book:${b.id}`,'',b.photo||'',{size:b.tileTitleSize,weight:b.tileTitleWeight})}<button type="button" class="text-button tile-edit-link" data-action="edit-book:${b.id}">Edytuj nazwę i zdjęcie książki</button></div>`).join('')}</div>`:empty('Tu pojawią się Twoje książki i tabele','Dodaj pierwszą książkę lub własną tabelę albo wczytaj kopię zapasową.','＋ Dodaj','add-home-item')}</div>`;
     const input = main.querySelector('#home-recipe-search');
     const results = main.querySelector('#home-recipe-results');
     const bookList = main.querySelector('#home-books');
@@ -310,14 +312,22 @@
     return /\bsv\b|\bsous[-–\s]+vide\b|(?<![\p{L}\d])(?:konfit(?!ur)\p{L}*|confit)(?![\p{L}\d])/iu.test(text);
   }
 
+  function recipeBelongsToPrep(recipe,category) {
+    if (recipe.hideFromPrepIndex) return false;
+    if (recipe.prep || mentionsPrepMethod(category.name)) return true;
+    return mentionsPrepMethod([recipe.name,recipe.description,
+      ...(recipe.sections||[]).flatMap(stage=>[stage.name,stage.instructions])].join(' '));
+  }
+
+  function hasPrepTile() {
+    return Boolean(state.prepTile.name || state.prepEntries.length || state.books.some(book=>
+      book.categories.some(category=>category.recipes.some(recipe=>recipeBelongsToPrep(recipe,category)))));
+  }
+
   function renderPrepIndex() {
     const categories = state.books.flatMap(book=>book.categories.map(category=>({book,category})));
-    const existing = categories.flatMap(({book,category})=>category.recipes.filter(recipe=>{
-      if (recipe.hideFromPrepIndex) return false;
-      if (recipe.prep || mentionsPrepMethod(category.name)) return true;
-      return mentionsPrepMethod([recipe.name,recipe.description,
-        ...(recipe.sections||[]).flatMap(stage=>[stage.name,stage.instructions])].join(' '));
-    }).map(recipe=>({book,category,recipe})));
+    const existing = categories.flatMap(({book,category})=>category.recipes
+      .filter(recipe=>recipeBelongsToPrep(recipe,category)).map(recipe=>({book,category,recipe})));
     const prepName = ({recipe})=>recipe.prep?.name || recipe.name;
     const collator = new Intl.Collator('pl');
     const entries = [...state.prepEntries.map(recipe=>({recipe})),...existing]
@@ -1590,6 +1600,7 @@
     showForm('Dodaj na stronie głównej',`<div class="form">
       <button type="button" class="quiet-button" data-action="new-book">Książka kucharska</button>
       <button type="button" class="primary-button" data-action="choose-table-template">Własna tabela</button>
+      ${hasPrepTile()?'':'<button type="button" class="quiet-button" data-action="edit-prep-tile">Kafelek Prep sous-vide</button>'}
     </div>`);
   }
 
