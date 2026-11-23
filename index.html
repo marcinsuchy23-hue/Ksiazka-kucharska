@@ -120,6 +120,7 @@
     .baker-carry {grid-column:1/-1}
     .section-editor:first-child .baker-carry {display:none}
     .stage-mass {
+      white-space:pre-line;
       margin:12px 0 0;
       text-align:right;
       color:var(--green);
@@ -782,12 +783,16 @@
         const desired = readQuantity(target.value);
         const sourceMass = ingredientMassUnit(source?.tail,selected?.name);
         const desiredMass = ingredientMassUnit(desired?.tail,selected?.name);
+        const sourceVolume = !sourceMass && volumeUnit(source?.tail);
+        const desiredVolume = !desiredMass && volumeUnit(desired?.tail);
+        const sourceFactor = sourceMass || sourceVolume;
+        const desiredFactor = desiredMass || desiredVolume;
         if (!source || !desired || !Number.isFinite(desired.value) || desired.value<=0 ||
-            (desired.tail.trim() && Boolean(sourceMass)!==Boolean(desiredMass))) {
+            (desired.tail.trim() && (Boolean(sourceMass)!==Boolean(desiredMass) || Boolean(sourceVolume)!==Boolean(desiredVolume)))) {
           ratio = 1;
           explanation = 'Wpisz dodatnią ilość w zgodnej jednostce.';
         } else {
-          ratio = (desired.value*(desiredMass||sourceMass||1))/(source.value*(sourceMass||1));
+          ratio = (desired.value*(desiredFactor||sourceFactor||1))/(source.value*(sourceFactor||1));
           targetLabel = desired.tail.trim() ? target.value.trim() : target.value.trim()+source.tail;
         }
       }
@@ -864,38 +869,59 @@
   const fractions={'¼':.25,'½':.5,'¾':.75,'⅓':1/3,'⅔':2/3,'⅛':.125,'⅜':.375,'⅝':.625,'⅞':.875};
   function readQuantity(text){let m=String(text||'').match(/^\s*(\d+)\s+(\d+)\/(\d+)(.*)$/);if(m)return{value:Number(m[1])+Number(m[2])/Number(m[3]),tail:m[4]};m=String(text||'').match(/^\s*(\d+)\/(\d+)(.*)$/);if(m)return{value:Number(m[1])/Number(m[2]),tail:m[3]};m=String(text||'').match(/^\s*(\d+)?\s*([¼½¾⅓⅔⅛⅜⅝⅞])(.*)$/);if(m)return{value:Number(m[1]||0)+fractions[m[2]],tail:m[3]};m=String(text||'').match(/^\s*(\d+(?:[,.]\d+)?)(.*)$/);return m?{value:Number(m[1].replace(',','.')),tail:m[2]}:null}
   function scaleAmount(value,target,base){if(base<=0)return value;const range=String(value||'').match(/^\s*(\d+(?:[,.]\d+)?)\s*([-–—])\s*(\d+(?:[,.]\d+)?)(.*)$/);const factor=target/base;const fmt=n=>String(Math.round(n*factor*100)/100).replace('.',',');if(range)return `${fmt(Number(range[1].replace(',','.')))}${range[2]}${fmt(Number(range[3].replace(',','.')))}${range[4]}`;const parsed=readQuantity(value);if(!parsed||!Number.isFinite(parsed.value))return value;return `${fmt(parsed.value)}${parsed.tail}`}
-  function massUnit(unit = '') {
-    const factors = {mg:.001,g:1,dag:10,dkg:10,kg:1000};
-    return Object.hasOwn(factors,unit.trim().toLowerCase()) ? factors[unit.trim().toLowerCase()] : 0;
+  function normalizeQuantityUnit(unit = '') {
+    return unit.trim().toLocaleLowerCase('pl').replace(/\.$/u,'');
+  }
+
+  function massUnit(unit) {
+    const name = normalizeQuantityUnit(unit);
+    if (/^(kg|kilogram(?:a|y|ów)?)$/u.test(name)) return 1000;
+    if (/^(dag|dkg|dekagram(?:a|y|ów)?)$/u.test(name)) return 10;
+    if (/^(g|gram(?:a|y|ów)?)$/u.test(name)) return 1;
+    if (/^(mg|miligram(?:a|y|ów)?)$/u.test(name)) return .001;
+    return 0;
+  }
+
+  function volumeUnit(unit) {
+    const name = normalizeQuantityUnit(unit);
+    if (/^(l|litr(?:a|y|ów)?)$/u.test(name)) return 1000;
+    if (name==='dl') return 100;
+    if (name==='cl') return 10;
+    if (/^(ml|mililitr(?:a|y|ów)?)$/u.test(name)) return 1;
+    return 0;
   }
 
   function waterIngredient(name = '') {
     return /^(woda|wody)(?=\s|$)/iu.test(name.trim());
   }
 
-  function ingredientMassUnit(unit = '',name) {
-    const mass = massUnit(unit);
-    if (mass || !waterIngredient(name)) return mass;
-    const volume = {ml:1,cl:10,dl:100,l:1000};
-    const normalized = unit.trim().toLowerCase();
-    return Object.hasOwn(volume,normalized) ? volume[normalized] : 0;
+  function ingredientMassUnit(unit,name) {
+    return massUnit(unit) || (waterIngredient(name) ? volumeUnit(unit) : 0);
   }
 
-  function massInGrams(amount,name) {
+  function quantityBounds(amount,factorForUnit) {
     const range = amount.match(/^\s*(\d+(?:[,.]\d+)?)\s*[-–—]\s*(\d+(?:[,.]\d+)?)(.*)$/);
-    const quantity = range ? readQuantity(range[2] + range[3]) : readQuantity(amount);
-    const factor = ingredientMassUnit(quantity?.tail,name);
+    const quantity = range ? readQuantity(range[2]+range[3]) : readQuantity(amount);
+    const factor = factorForUnit(quantity?.tail);
     if (!factor || !Number.isFinite(quantity?.value)) return null;
-    const end = quantity.value * factor;
-    const start = range ? Number(range[1].replace(',','.')) * factor : end;
+    const end = quantity.value*factor;
+    const start = range ? Number(range[1].replace(',','.'))*factor : end;
     return [Math.min(start,end),Math.max(start,end)];
   }
 
+  function massInGrams(amount,name) {
+    return quantityBounds(amount,unit=>ingredientMassUnit(unit,name));
+  }
+
+  function summarizeBounds(bounds) {
+    const measured = bounds.filter(Boolean);
+    if (!measured.length) return null;
+    const [min,max] = measured.reduce(([low,high],[start,end])=>[low+start,high+end],[0,0]);
+    return {min,max,partial:measured.length<bounds.length};
+  }
+
   function summarizeMass(amounts,ingredients = []) {
-    const masses = amounts.map((amount,i)=>massInGrams(amount,ingredients[i]?.name)).filter(Boolean);
-    if (!masses.length) return null;
-    const [min,max] = masses.reduce(([low,high],[start,end])=>[low+start,high+end],[0,0]);
-    return {min,max,partial:masses.length<amounts.length};
+    return summarizeBounds(amounts.map((amount,i)=>massInGrams(amount,ingredients[i]?.name)));
   }
 
   function updateBakerPercentages(section,stage,amounts,ratio,previous) {
@@ -943,14 +969,23 @@
     return new Intl.NumberFormat('pl',{maximumFractionDigits:3}).format(value)+' g';
   }
 
-  function updateStageMass(section,amounts,ingredients) {
+  function formatQuantityBounds(total,unit) {
+    const number = new Intl.NumberFormat('pl',{maximumFractionDigits:3});
+    const min = number.format(total.min), max = number.format(total.max);
+    return (min===max ? min : min+'–'+max)+' '+unit;
+  }
+
+  function updateStageMass(section,amounts,ingredients = []) {
     const output = section.querySelector('[data-stage-mass]');
     const mass = summarizeMass(amounts,ingredients);
-    output.hidden = !mass;
-    if (!mass) return null;
-    const low = formatGrams(mass.min), high = formatGrams(mass.max);
-    const partial = mass.partial ? ' (suma podanych mas)' : '';
-    output.textContent = `Masa etapu: ${low===high ? low : low.slice(0,-2)+'–'+high}${partial}`;
+    const volumeBounds = amounts.map(amount=>quantityBounds(amount,volumeUnit));
+    const volume = summarizeBounds(volumeBounds);
+    const waterByVolume = volumeBounds.some((bounds,i)=>bounds && waterIngredient(ingredients[i]?.name));
+    const lines = [];
+    if (mass) lines.push(`Masa etapu: ${formatQuantityBounds(mass,'g')}${mass.partial?' (suma podanych mas)':''}`);
+    if (volume) lines.push(`Objętość etapu: ${formatQuantityBounds(volume,'ml')}${waterByVolume?' (woda uwzględniona też w masie)':''}`);
+    output.hidden = !lines.length;
+    output.textContent = lines.join('\n');
     return mass;
   }
 
