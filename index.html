@@ -111,6 +111,12 @@
       color:var(--green);
       font-weight:750;
     }
+    .backup-recipe-list {max-height:35vh;overflow:auto;border:1px solid var(--line);border-radius:10px}
+    .backup-recipe {display:flex;gap:10px;align-items:center;padding:10px;border-bottom:1px solid var(--line)}
+    .backup-recipe:last-child {border-bottom:0}
+    .backup-recipe[hidden] {display:none}
+    .backup-recipe small {display:block;color:var(--muted);margin-top:3px}
+    .backup-import-actions {flex-wrap:wrap}
     .backup-button {display:inline-flex;align-items:center;gap:7px}
     .backup-icon {width:17px;height:17px;flex:none}
     html.app-swipe {overscroll-behavior-x:none}
@@ -1817,7 +1823,121 @@
   document.querySelector('#home-link').addEventListener('click',e=>{e.preventDefault();navigate('home')});
   document.querySelector('#export-button').addEventListener('click',()=>{const blob=new Blob([JSON.stringify({format:'domowa-kuchnia',version:1,exportedAt:new Date().toISOString(),...state},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='moja-ksiazka-kucharska.json';a.click();URL.revokeObjectURL(a.href);toast('Kopia zapasowa pobrana')});
   document.querySelector('#import-button').addEventListener('click',()=>document.querySelector('#import-file').click());
-  document.querySelector('#import-file').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{const data=JSON.parse(await file.text());if(!data||!Array.isArray(data.books)||!data.books.every(b=>typeof b.name==='string'&&Array.isArray(b.categories)))throw new Error('bad');if(confirm('Wczytać kopię zapasową? Obecne przepisy zostaną zastąpione zawartością kopii.')){const imported=normalizeCookbook(data);localStorage.setItem(KEY,JSON.stringify(imported));state=imported;navigate('home');toast('Kopia zapasowa wczytana')}}catch{toast('Nie udało się wczytać tego pliku')}e.target.value=''});
+  function importSelectedRecipes(entries,destination) {
+    const books = structuredClone(state.books);
+    for (const {book:sourceBook,category:sourceCategory,recipe} of entries) {
+      let book, category;
+      if (destination) {
+        book = books.find(item=>item.id===destination.book.id);
+        category = book.categories.find(item=>item.id===destination.category.id);
+      } else {
+        book = books.find(item=>item.name===sourceBook.name);
+        if (!book) {
+          book = {...sourceBook,id:id(),categories:[]};
+          books.push(book);
+        }
+        category = book.categories.find(item=>item.name===sourceCategory.name);
+        if (!category) {
+          category = {...sourceCategory,id:id(),recipes:[]};
+          book.categories.push(category);
+        }
+      }
+      const copy = {...recipe,id:id()};
+      delete copy.notes;
+      delete copy.hideFromPrepIndex;
+      category.recipes.push(copy);
+    }
+    const updated = {...state,books};
+    localStorage.setItem(KEY,JSON.stringify(updated));
+    state = updated;
+  }
+
+  function reviewBackup(data) {
+    const entries = data.books.flatMap(book=>book.categories.flatMap(category=>
+      category.recipes.map(recipe=>({book,category,recipe}))));
+    const destinations = state.books.flatMap(book=>book.categories.map(category=>({book,category})));
+    showForm('Wczytaj kopię zapasową',`<form id="edit-form" class="form">
+      ${entries.length ? `<p class="scan-help">Zaznacz przepisy, które chcesz dopisać. Zdjęcia przepisów zostaną skopiowane. Dziennik wypieków zostaje w kopii.</p>
+        <div class="field"><label for="backup-search">Szukaj w kopii</label>
+          <input type="search" id="backup-search" placeholder="Nazwa przepisu, książki lub działu"></div>
+        <div class="backup-recipe-list" role="group" aria-label="Przepisy z kopii">
+          ${entries.map(({book,category,recipe},i)=>`<label class="backup-recipe">
+            <input type="checkbox" name="recipes" value="${i}">
+            <span><strong>${esc(recipe.name)}</strong><small>${esc(book.name)} · ${esc(category.name)}</small></span>
+          </label>`).join('')}
+        </div>
+        <div class="field"><label for="backup-destination">Gdzie dodać przepisy</label>
+          <select id="backup-destination" name="destination">
+            <option value="">Książki i działy według nazw z kopii</option>
+            ${destinations.map(({book,category},i)=>`<option value="${i}">${esc(book.name)} · ${esc(category.name)}</option>`).join('')}
+          </select></div>` : '<p class="scan-help">W kopii nie ma przepisów do wybrania.</p>'}
+      <p class="scan-help" id="backup-import-status" role="status" hidden></p>
+      <div class="form-actions backup-import-actions">
+        <button type="button" class="quiet-button" data-close>Anuluj</button>
+        <button type="button" class="danger-button" id="restore-full-backup">Odtwórz całą kopię</button>
+        ${entries.length?'<button type="submit" class="primary-button">Dodaj zaznaczone</button>':''}
+      </div>
+    </form>`,(formData,form)=>{
+      const selected = formData.getAll('recipes').map(index=>entries[Number(index)]).filter(Boolean);
+      const message = form.querySelector('#backup-import-status');
+      if (!selected.length) {
+        message.textContent = 'Zaznacz co najmniej jeden przepis.';
+        message.hidden = false;
+        return;
+      }
+      const destination = formData.get('destination');
+      try {
+        importSelectedRecipes(selected,destination===''?null:destinations[Number(destination)]);
+      } catch {
+        message.textContent = 'Nie udało się zapisać wybranych przepisów na tym urządzeniu.';
+        message.hidden = false;
+        return;
+      }
+      closeForm();
+      navigate('home');
+      toast(`Dodano przepisy: ${selected.length}`);
+    });
+    const search = document.querySelector('#backup-search');
+    search?.addEventListener('input',()=>{
+      const query = search.value.trim().toLocaleLowerCase('pl');
+      document.querySelectorAll('.backup-recipe').forEach(row=>{
+        row.hidden = !row.textContent.toLocaleLowerCase('pl').includes(query);
+      });
+    });
+    document.querySelector('#restore-full-backup').addEventListener('click',()=>{
+      if (!confirm('Odtworzyć całą kopię? Obecne książki, przepisy i tabele zostaną zastąpione zawartością kopii.')) return;
+      try {
+        localStorage.setItem(KEY,JSON.stringify(data));
+        state = data;
+      } catch {
+        const message = document.querySelector('#backup-import-status');
+        message.textContent = 'Nie udało się odtworzyć kopii na tym urządzeniu.';
+        message.hidden = false;
+        return;
+      }
+      closeForm();
+      navigate('home');
+      toast('Kopia zapasowa wczytana');
+    });
+  }
+
+  document.querySelector('#import-file').addEventListener('change',async event=>{
+    const input = event.target;
+    const file = input.files[0];
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      if (!Array.isArray(data?.books) || !data.books.every(book=>
+        typeof book?.name==='string' && Array.isArray(book.categories) && book.categories.every(category=>
+          typeof category?.name==='string' && Array.isArray(category.recipes) &&
+          category.recipes.every(recipe=>typeof recipe?.name==='string')))) throw Error('bad backup');
+      reviewBackup(normalizeCookbook(data));
+    } catch {
+      toast('Nie udało się wczytać tego pliku.');
+    } finally {
+      input.value = '';
+    }
+  });
   try { localStorage.removeItem('domowa-kuchnia-sync-key'); } catch {}
   if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(()=>{});
   setupBackNavigation();
