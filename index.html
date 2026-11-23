@@ -49,6 +49,18 @@
     .cooking-ingredients input {width:22px;height:22px}
     .cooking-ingredients input:checked + span {text-decoration:line-through;color:var(--muted)}
     .prep-list {margin:0 0 20px}
+    .custom-table-actions {flex-wrap:wrap}
+    .custom-table th,.custom-table td {min-width:100px;white-space:pre-wrap;vertical-align:top}
+    .custom-table-row-action {min-width:0!important;width:1%}
+    .custom-table-visually-hidden {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+    .custom-column-field {display:flex;gap:8px;margin-bottom:8px}
+    .custom-column-field input {min-width:0}
+    @media print {
+      .custom-table-actions,.custom-table-search,.custom-table-row-action {display:none!important}
+      .custom-table {table-layout:fixed}
+      .custom-table th,.custom-table td {min-width:0;overflow-wrap:anywhere}
+      .custom-table tr {break-inside:avoid}
+    }
     .prep-list h2 {font:500 25px Georgia,serif;margin:0 0 12px}
     .prep-list table {width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line)}
     .prep-list th,.prep-list td {text-align:left;overflow-wrap:anywhere;padding:9px;border-bottom:1px solid var(--line)}
@@ -154,14 +166,14 @@
         });
       }
     }
-    return {books:data.books,prepEntries,prepTile:data.prepTile||{}};
+    return {books:data.books,prepEntries,prepTile:data.prepTile||{},tables:Array.isArray(data.tables)?data.tables:[]};
   }
   function load() {
     try {
       const data = JSON.parse(localStorage.getItem(KEY));
       if (Array.isArray(data?.books)) return normalizeCookbook(data);
     } catch {}
-    return {books:[],prepEntries:[],prepTile:{}};
+    return {books:[],prepEntries:[],prepTile:{},tables:[]};
   }
   function save(){localStorage.setItem(KEY,JSON.stringify(state))}
   function esc(s=''){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -175,6 +187,7 @@
     if (appleTouchDevice && isInlineEditor(document.activeElement)) document.activeElement.blur();
     if(route.type==='home')return renderHome();
     if(route.type==='prep-index')return renderPrepIndex();
+    if(route.type==='custom-table')return renderCustomTable(state.tables.find(table=>table.id===route.id));
     if(route.type==='prep-entry')return renderPrep(state.prepEntries.find(entry=>entry.id===route.id));
     if(route.type==='book')return renderBook();
     if(route.type==='category')return renderCategory();
@@ -183,14 +196,16 @@
   function renderHome(){
     const books=state.books;
     const prepTile=state.prepTile;
-    main.innerHTML=`<section class="page-head"><div><div class="eyebrow">Twoje domowe zbiory</div><h1 class="heading">Smaki, do których<br>chce się wracać.</h1><p class="subheading">Wszystkie Twoje przepisy w jednym, przytulnym miejscu.</p></div><button class="primary-button" data-action="new-book">＋ Dodaj książkę</button></section>
+    main.innerHTML=`<section class="page-head"><div><div class="eyebrow">Twoje domowe zbiory</div><h1 class="heading">Smaki, do których<br>chce się wracać.</h1><p class="subheading">Wszystkie Twoje przepisy w jednym, przytulnym miejscu.</p></div><button type="button" class="primary-button" data-action="add-home-item">＋ Dodaj</button></section>
       <div class="toolbar"><input id="home-recipe-search" class="search" type="search"
         aria-label="Szukaj przepisu we wszystkich książkach" placeholder="Szukaj przepisu we wszystkich książkach"
         value="${esc(homeSearch)}"></div>
       <div id="home-recipe-results" hidden></div>
       <div id="home-books"><div class="grid"><div class="tile-edit-wrap">${card(prepTile.name||'Prep sous-vide','Temperatury i czasy obróbki','🌡️',colors[2],
         'prep-index','',prepTile.photo||'',{size:prepTile.tileTitleSize,weight:prepTile.tileTitleWeight})}
-        <button type="button" class="text-button tile-edit-link" data-action="edit-prep-tile">Edytuj kafelek Prep</button></div>${books.map((b,i)=>`<div class="tile-edit-wrap">${card(b.name,`${b.categories.length} ${plural(b.categories.length,'dział','działy','działów')}`,icons[i%icons.length],colors[i%colors.length],`book:${b.id}`,'',b.photo||'',{size:b.tileTitleSize,weight:b.tileTitleWeight})}<button type="button" class="text-button tile-edit-link" data-action="edit-book:${b.id}">Edytuj nazwę i zdjęcie książki</button></div>`).join('')}</div>${books.length?'':empty('Zacznij od swojej pierwszej książki','Utwórz książkę kucharską i poukładaj w niej przepisy tak, jak lubisz.','＋ Dodaj pierwszą książkę','new-book')}</div>`;
+        <button type="button" class="text-button tile-edit-link" data-action="edit-prep-tile">Edytuj kafelek Prep</button></div>${state.tables.map((table,i)=>`<div class="tile-edit-wrap">
+        ${card(table.name,'Tabela','📋',colors[(i+3)%colors.length],`custom-table:${table.id}`,'',table.photo||'')}
+        <button type="button" class="text-button tile-edit-link" data-action="edit-custom-table:${table.id}">Edytuj tabelę</button></div>`).join('')}${books.map((b,i)=>`<div class="tile-edit-wrap">${card(b.name,`${b.categories.length} ${plural(b.categories.length,'dział','działy','działów')}`,icons[i%icons.length],colors[i%colors.length],`book:${b.id}`,'',b.photo||'',{size:b.tileTitleSize,weight:b.tileTitleWeight})}<button type="button" class="text-button tile-edit-link" data-action="edit-book:${b.id}">Edytuj nazwę i zdjęcie książki</button></div>`).join('')}</div>${books.length?'':empty('Zacznij od swojej pierwszej książki','Utwórz książkę kucharską i poukładaj w niej przepisy tak, jak lubisz.','＋ Dodaj pierwszą książkę','new-book')}</div>`;
     const input = main.querySelector('#home-recipe-search');
     const results = main.querySelector('#home-recipe-results');
     const bookList = main.querySelector('#home-books');
@@ -984,7 +999,7 @@
     const [type,book,category,recipe] = value.split(':');
     let next;
     if (type==='home' || type==='prep-index') next={type};
-    else if (type==='prep-entry') next={type,id:book};
+    else if (type==='prep-entry' || type==='custom-table') next={type,id:book};
     else if (type==='book') next={type,book};
     else if (type==='category') next={type,book,category};
     else if (type==='recipe') next={type,book,category,recipe};
@@ -1469,8 +1484,205 @@
     });
     document.querySelector('#add-section').addEventListener('click',()=>{sectionsRoot.insertAdjacentHTML('beforeend',sectionMarkup({},sectionsRoot.children.length,bakerToggle.checked));sectionsRoot.lastElementChild.scrollIntoView({behavior:'smooth',block:'center'});updateSectionOrder()});
   }
+  const tableTemplates = {
+    blank:{name:'',labels:['Nazwa','Uwagi']},
+    prep:{name:'Prep',labels:['Produkt','Temperatura (°C)','Czas','Porcja','Uwagi']},
+    marinade:{name:'Zalewy i marynaty',labels:['Nazwa','Ilość wody','Sól','Cukier','Czas marynowania']},
+    conversions:{name:'Przeliczniki kuchenne',labels:['Produkt','Miara','Waga (g)','Uwagi']},
+    yield:{name:'Wydajność produktów',labels:['Produkt','Waga przed obróbką','Waga po obróbce','Ubytek']}
+  };
+
+  function addHomeItem() {
+    showForm('Dodaj na stronie głównej',`<div class="form">
+      <button type="button" class="quiet-button" data-action="new-book">Książka kucharska</button>
+      <button type="button" class="primary-button" data-action="choose-table-template">Własna tabela</button>
+    </div>`);
+  }
+
+  function chooseTableTemplate() {
+    showForm('Wybierz szablon tabeli',`<form id="edit-form" class="form">
+      <div class="field"><label for="table-template">Szablon</label><select id="table-template" name="template">
+        ${Object.entries(tableTemplates).map(([key,template])=>
+          `<option value="${key}">${esc(template.name||'Pusta tabela')}</option>`).join('')}
+      </select></div>
+      <div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button>
+        <button type="submit" class="primary-button">Dalej</button></div>
+    </form>`,data=>editCustomTable(undefined,tableTemplates[data.get('template')]||tableTemplates.blank));
+  }
+
+  function storeCustomTables(tables) {
+    const previous = state.tables;
+    state.tables = tables;
+    try {
+      save();
+      return true;
+    } catch {
+      state.tables = previous;
+      toast('Nie udało się zapisać tabeli na tym urządzeniu.');
+      return false;
+    }
+  }
+
+  function updateCustomTable(table) {
+    const exists = state.tables.some(item=>item.id===table.id);
+    return storeCustomTables(exists ? state.tables.map(item=>item.id===table.id?table:item) : [...state.tables,table]);
+  }
+
+  function editCustomTable(table,template=tableTemplates.blank) {
+    const columns = table?.columns || template.labels.map(label=>({id:id(),label}));
+    function columnField(column) {
+      return `<div class="custom-column-field" data-column-id="${esc(column.id)}">
+        <input required maxlength="70" aria-label="Nazwa kolumny" value="${esc(column.label)}">
+        <button type="button" class="quiet-button" data-remove-table-column aria-label="Usuń kolumnę">Usuń</button></div>`;
+    }
+    showForm(table?'Edytuj tabelę':'Nowa tabela',`<form id="edit-form" class="form">
+      <div class="field"><label for="custom-table-name">Nazwa tabeli i kafelka</label>
+        <input id="custom-table-name" name="name" required maxlength="70" value="${esc(table?.name||template.name)}"></div>
+      <div class="field"><label for="custom-table-photo">Zdjęcie kafelka</label>
+        <input id="custom-table-photo" type="file" accept="image/*">
+        ${table?.photo?`<img class="recipe-photo-preview" src="${esc(table.photo)}" alt="Obecne zdjęcie kafelka">
+          <label><input type="checkbox" name="removePhoto"> Usuń obecne zdjęcie przy zapisie</label>`:''}
+      </div>
+      <div class="field"><span class="label">Kolumny</span><div id="custom-table-columns">${columns.map(columnField).join('')}</div>
+        <div><button type="button" class="text-button" id="add-table-column">＋ Dodaj kolumnę</button></div></div>
+      ${table?`<div><button type="button" class="danger-button" id="delete-custom-table">Usuń tabelę</button></div>`:''}
+      <div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button>
+        <button type="submit" class="primary-button">Zapisz tabelę</button></div>
+    </form>`,async (data,form)=>{
+      const name = String(data.get('name')).trim();
+      const savedColumns = [...form.querySelectorAll('[data-column-id]')].map(field=>
+        ({id:field.dataset.columnId,label:field.querySelector('input').value.trim()}));
+      const button = form.querySelector('[type=submit]');
+      if (!name || savedColumns.some(column=>!column.label) || button.disabled) return;
+      button.disabled = true;
+      try {
+        let photo = table?.photo || '';
+        const file = form.querySelector('#custom-table-photo').files[0];
+        if (data.get('removePhoto')==='on') photo='';
+        else if (file) {
+          try {photo=await compressRecipePhoto(file,720,.7);} catch {
+            toast('Nie udało się wczytać zdjęcia.');
+            return;
+          }
+        }
+        if (!form.isConnected) return;
+        const rows = (table?.rows||[]).map(row=>({id:row.id,
+          cells:Object.fromEntries(savedColumns.map(column=>[column.id,row.cells[column.id]||'']))}));
+        const updated = {...table,id:table?.id||id(),name,photo,columns:savedColumns,rows};
+        if (!updateCustomTable(updated)) return;
+        closeForm();
+        navigate(`custom-table:${updated.id}`);
+        toast('Tabela zapisana');
+      } finally {
+        button.disabled = false;
+      }
+    });
+    const list = document.querySelector('#custom-table-columns');
+    document.querySelector('#add-table-column').addEventListener('click',()=>{
+      list.insertAdjacentHTML('beforeend',columnField({id:id(),label:''}));
+      list.lastElementChild.querySelector('input').focus();
+    });
+    list.addEventListener('click',event=>{
+      const button = event.target.closest('[data-remove-table-column]');
+      if (!button) return;
+      if (list.children.length===1) {
+        toast('Tabela musi mieć co najmniej jedną kolumnę.');
+        return;
+      }
+      const column = button.closest('[data-column-id]');
+      if (table?.rows.some(row=>row.cells[column.dataset.columnId]) &&
+          !confirm('Usunąć kolumnę wraz z jej danymi po zapisaniu zmian?')) return;
+      column.remove();
+    });
+    document.querySelector('#delete-custom-table')?.addEventListener('click',()=>{
+      if (!confirm(`Usunąć tabelę „${table.name}” razem z jej wierszami (${table.rows.length})?`)) return;
+      if (!storeCustomTables(state.tables.filter(item=>item.id!==table.id))) return;
+      closeForm();
+      navigate('home');
+      toast('Tabela usunięta');
+    });
+  }
+
+  function renderCustomTable(table) {
+    if (!table) {
+      route={type:'home'};
+      return renderHome();
+    }
+    main.innerHTML = `<div class="recipe-screen" id="recipe-zoom-area">
+      ${crumb([{label:'Moja kuchnia',route:'home'},{label:table.name}])}
+      <section class="page-head"><h1 class="heading">${esc(table.name)}</h1>
+        <div class="top-actions custom-table-actions">
+          <button type="button" class="quiet-button" data-action="edit-custom-table:${table.id}">Ustawienia tabeli</button>
+          <button type="button" class="primary-button" data-action="add-table-row:${table.id}">＋ Dodaj wiersz</button>
+        </div></section>
+      <div class="toolbar custom-table-search"><input type="search" class="search" id="custom-table-search"
+        aria-label="Szukaj w tabeli" placeholder="Szukaj w tabeli"></div>
+      ${viewZoomControls('Widok tabeli','<button type="button" class="quiet-button" id="custom-table-print">Zapisz / drukuj PDF</button>')}
+      <div id="custom-table-results"></div></div>`;
+    bindViewZoom(table.viewZoom,zoom=>{
+      table.viewZoom = zoom;
+      save();
+    });
+    const input = main.querySelector('#custom-table-search');
+    const results = main.querySelector('#custom-table-results');
+    const print = main.querySelector('#custom-table-print');
+    function refresh() {
+      const query = input.value.trim().toLocaleLowerCase('pl');
+      const rows = table.rows.filter(row=>table.columns.some(column=>
+        String(row.cells[column.id]||'').toLocaleLowerCase('pl').includes(query)));
+      print.disabled = !rows.length;
+      results.innerHTML = rows.length ? `<div class="prep-table-scroll prep-list" tabindex="0" role="region" aria-label="${esc(table.name)}">
+        <table class="custom-table"><thead><tr>${table.columns.map(column=>`<th scope="col">${esc(column.label)}</th>`).join('')}
+          <th scope="col" class="custom-table-row-action"><span class="custom-table-visually-hidden">Edycja</span></th></tr></thead>
+          <tbody>${rows.map(row=>`<tr>${table.columns.map(column=>`<td>${esc(row.cells[column.id]||'—')}</td>`).join('')}
+            <td class="custom-table-row-action"><button type="button" class="text-button" data-action="edit-table-row:${table.id}:${row.id}">Edytuj</button></td>
+          </tr>`).join('')}</tbody>
+        </table></div>` : `<div class="empty"><h2>${query?'Brak wyników':'Tabela jest pusta'}</h2></div>`;
+    }
+    input.addEventListener('input',refresh);
+    print.addEventListener('click',()=>window.print());
+    refresh();
+  }
+
+  function editCustomTableRow(table,row) {
+    showForm(row?'Edytuj wiersz':'Dodaj wiersz',`<form id="edit-form" class="form">
+      ${table.columns.map(column=>`<div class="field"><label>${esc(column.label)}
+        <textarea name="cell-${esc(column.id)}" rows="1" maxlength="3000">${esc(row?.cells[column.id]||'')}</textarea></label></div>`).join('')}
+      ${row?'<div><button type="button" class="danger-button" id="delete-table-row">Usuń wiersz</button></div>':''}
+      <div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button>
+        <button type="submit" class="primary-button">Zapisz wiersz</button></div>
+    </form>`,data=>{
+      const cells = Object.fromEntries(table.columns.map(column=>[column.id,String(data.get('cell-'+column.id)||'').trim()]));
+      if (!Object.values(cells).some(Boolean)) {
+        toast('Wpisz wartość przynajmniej w jednym polu.');
+        return;
+      }
+      const updated = {id:row?.id||id(),cells};
+      const rows = row ? table.rows.map(item=>item.id===row.id?updated:item) : [...table.rows,updated];
+      if (!updateCustomTable({...table,rows})) return;
+      closeForm();
+      render();
+    });
+    document.querySelector('#delete-table-row')?.addEventListener('click',()=>{
+      if (!confirm('Usunąć ten wiersz z tabeli?')) return;
+      if (!updateCustomTable({...table,rows:table.rows.filter(item=>item.id!==row.id)})) return;
+      closeForm();
+      render();
+    });
+  }
+
   document.addEventListener('click',e=>{const cr=e.target.closest('[data-route]');if(cr){navigate(cr.dataset.route);return}const a=e.target.closest('[data-action]');if(!a)return;const [act,...p]=a.dataset.action.split(':');
     if(act==='book')return navigate(`book:${p[0]}`);if(act==='category')return navigate(`category:${p[0]}:${p[1]}`);if(act==='recipe')return navigate(`recipe:${p[0]}:${p[1]}:${p[2]}`);
+    if (act==='add-home-item') return addHomeItem();
+    if (act==='choose-table-template') return chooseTableTemplate();
+    if (act==='custom-table') return navigate(`custom-table:${p[0]}`);
+    if (act==='edit-custom-table' || act==='add-table-row' || act==='edit-table-row') {
+      const table = state.tables.find(item=>item.id===p[0]);
+      if (!table) return;
+      if (act==='edit-custom-table') return editCustomTable(table);
+      const row = table.rows.find(item=>item.id===p[1]);
+      if (act==='add-table-row' || row) return editCustomTableRow(table,row);
+    }
     if(act==='new-book')return bookForm()
     if(act==='edit-book'){const b=bookBy(p[0]);return bookForm(b)}
     if(act==='new-category'){const b=bookBy(p[0]);return categoryForm(b)}
