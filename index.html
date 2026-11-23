@@ -142,14 +142,14 @@
         });
       }
     }
-    return {books:data.books,prepEntries};
+    return {books:data.books,prepEntries,prepTile:data.prepTile||{}};
   }
   function load() {
     try {
       const data = JSON.parse(localStorage.getItem(KEY));
       if (Array.isArray(data?.books)) return normalizeCookbook(data);
     } catch {}
-    return {books:[],prepEntries:[]};
+    return {books:[],prepEntries:[],prepTile:{}};
   }
   function save(){localStorage.setItem(KEY,JSON.stringify(state))}
   function esc(s=''){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -170,12 +170,15 @@
   }
   function renderHome(){
     const books=state.books;
+    const prepTile=state.prepTile;
     main.innerHTML=`<section class="page-head"><div><div class="eyebrow">Twoje domowe zbiory</div><h1 class="heading">Smaki, do których<br>chce się wracać.</h1><p class="subheading">Wszystkie Twoje przepisy w jednym, przytulnym miejscu.</p></div><button class="primary-button" data-action="new-book">＋ Dodaj książkę</button></section>
       <div class="toolbar"><input id="home-recipe-search" class="search" type="search"
         aria-label="Szukaj przepisu we wszystkich książkach" placeholder="Szukaj przepisu we wszystkich książkach"
         value="${esc(homeSearch)}"></div>
       <div id="home-recipe-results" hidden></div>
-      <div id="home-books"><div class="grid">${card('Prep sous-vide','Temperatury i czasy obróbki','🌡️',colors[2],'prep-index')}${books.map((b,i)=>`<div class="tile-edit-wrap">${card(b.name,`${b.categories.length} ${plural(b.categories.length,'dział','działy','działów')}`,icons[i%icons.length],colors[i%colors.length],`book:${b.id}`,'',b.photo||'',{size:b.tileTitleSize,weight:b.tileTitleWeight})}<button type="button" class="text-button tile-edit-link" data-action="edit-book:${b.id}">Edytuj nazwę i zdjęcie książki</button></div>`).join('')}</div>${books.length?'':empty('Zacznij od swojej pierwszej książki','Utwórz książkę kucharską i poukładaj w niej przepisy tak, jak lubisz.','＋ Dodaj pierwszą książkę','new-book')}</div>`;
+      <div id="home-books"><div class="grid"><div class="tile-edit-wrap">${card(prepTile.name||'Prep sous-vide','Temperatury i czasy obróbki','🌡️',colors[2],
+        'prep-index','',prepTile.photo||'',{size:prepTile.tileTitleSize,weight:prepTile.tileTitleWeight})}
+        <button type="button" class="text-button tile-edit-link" data-action="edit-prep-tile">Edytuj kafelek Prep</button></div>${books.map((b,i)=>`<div class="tile-edit-wrap">${card(b.name,`${b.categories.length} ${plural(b.categories.length,'dział','działy','działów')}`,icons[i%icons.length],colors[i%colors.length],`book:${b.id}`,'',b.photo||'',{size:b.tileTitleSize,weight:b.tileTitleWeight})}<button type="button" class="text-button tile-edit-link" data-action="edit-book:${b.id}">Edytuj nazwę i zdjęcie książki</button></div>`).join('')}</div>${books.length?'':empty('Zacznij od swojej pierwszej książki','Utwórz książkę kucharską i poukładaj w niej przepisy tak, jak lubisz.','＋ Dodaj pierwszą książkę','new-book')}</div>`;
     const input = main.querySelector('#home-recipe-search');
     const results = main.querySelector('#home-recipe-results');
     const bookList = main.querySelector('#home-books');
@@ -1187,11 +1190,99 @@
     if (appleTouchDevice) restoreEditingViewport();
   }
 
-  function bookForm(book=null){
-    const existing=Boolean(book);
-    const content='<form id="edit-form" class="form"><div class="field"><label for="item-name">Nazwa książki kucharskiej</label><input id="item-name" name="name" required maxlength="70" value="'+esc(book?.name||'')+'" placeholder="np. Moje ulubione przepisy"></div><div class="field"><label for="book-photo">Zdjęcie książki</label><input id="book-photo" type="file" accept="image/*"><span class="scan-help">Wybierz zdjęcie z galerii albo zrób je aparatem. Pojawi się na kafelku książki.</span><div class="photo-preview-box" id="book-photo-preview">'+(book?.photo?'<img class="recipe-photo-preview" src="'+esc(book.photo)+'" alt="Podgląd zdjęcia książki">':'<span class="scan-help">Nie dodano jeszcze zdjęcia.</span>')+'</div>'+(book?.photo?'<label><input type="checkbox" name="removePhoto"> Usuń obecne zdjęcie przy zapisie</label>':'')+'</div>'+tileStyleFields(book)+'<div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button><button class="primary-button">'+(existing?'Zapisz zmiany':'Utwórz książkę')+'</button></div></form>';
-    showForm(existing?'Edytuj książkę':'Nowa książka',content,async(fd,form)=>{const name=String(fd.get('name')).trim();if(!name)return;let photo=book?.photo||'';const file=form.querySelector('#book-photo').files?.[0];if(fd.get('removePhoto')==='on')photo='';else if(file){try{photo=await compressRecipePhoto(file)}catch(err){toast('Nie udało się wczytać zdjęcia. Spróbuj wybrać je ponownie.');return}}if(existing){book.name=name;book.photo=photo;book.tileTitleSize=Number(fd.get('tileTitleSize'))||26;book.tileTitleWeight=Number(fd.get('tileTitleWeight'))||700}else state.books.push({id:id(),name,photo,tileTitleSize:Number(fd.get('tileTitleSize'))||26,tileTitleWeight:Number(fd.get('tileTitleWeight'))||700,categories:[]});save();closeForm();render();toast(existing?'Książka zaktualizowana':'Książka dodana')});
-    const input=document.querySelector('#book-photo'),preview=document.querySelector('#book-photo-preview');input.addEventListener('change',()=>{const file=input.files?.[0];if(!file)return;const url=URL.createObjectURL(file);preview.innerHTML='<img class="recipe-photo-preview" src="'+url+'" alt="Podgląd wybranego zdjęcia">';const remove=document.querySelector('#edit-form [name=removePhoto]');if(remove)remove.checked=false})
+  function bookForm(book=null,prep=false) {
+    const item = prep ? state.prepTile : book;
+    const existing = Boolean(item);
+    const title = prep ? 'Edytuj kafelek Prep' : existing ? 'Edytuj książkę' : 'Nowa książka';
+    const defaultName = prep ? 'Prep sous-vide' : '';
+    const photoLabel = prep ? 'Zdjęcie kafelka' : 'Zdjęcie książki';
+    const nameLabel = prep ? 'Nazwa kafelka' : 'Nazwa książki kucharskiej';
+    const content = `<form id="edit-form" class="form">
+      <div class="field"><label for="item-name">${nameLabel}</label>
+        <input id="item-name" name="name" required maxlength="70" value="${esc(item?.name||defaultName)}"></div>
+      <div class="field"><label for="book-photo">${photoLabel}</label>
+        <input id="book-photo" type="file" accept="image/*">
+        <div class="photo-preview-box" id="book-photo-preview">${item?.photo
+          ? `<img class="recipe-photo-preview" src="${esc(item.photo)}" alt="Podgląd zdjęcia">`
+          : '<span class="scan-help">Nie dodano jeszcze zdjęcia.</span>'}</div>
+        ${item?.photo?'<label><input type="checkbox" name="removePhoto"> Usuń obecne zdjęcie przy zapisie</label>':''}
+      </div>
+      ${tileStyleFields(item)}
+      ${book?'<div><button type="button" class="danger-button" id="delete-book">Usuń książkę</button></div>':''}
+      <p class="scan-help" id="book-form-message" role="status" hidden></p>
+      <div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button>
+        <button type="submit" class="primary-button">${existing?'Zapisz zmiany':'Utwórz książkę'}</button></div>
+    </form>`;
+    showForm(title,content,async(data,form)=>{
+      const name = String(data.get('name')).trim();
+      const button = form.querySelector('[type=submit]');
+      if (!name || button.disabled) return;
+      const message = form.querySelector('#book-form-message');
+      message.hidden = true;
+      button.disabled = true;
+      const file = form.querySelector('#book-photo').files[0];
+      let photo = item?.photo||'';
+      try {
+        if (data.get('removePhoto')==='on') photo='';
+        else if (file) photo=await compressRecipePhoto(file);
+      } catch {
+        message.textContent = 'Nie udało się wczytać zdjęcia. Wybierz je ponownie.';
+        message.hidden = false;
+        button.disabled = false;
+        return;
+      }
+      if (!form.isConnected) return;
+      const updated = {name,photo,tileTitleSize:Number(data.get('tileTitleSize'))||26,
+        tileTitleWeight:Number(data.get('tileTitleWeight'))||700};
+      const previousBooks = state.books;
+      if (prep) state.prepTile = updated;
+      else if (book) state.books = previousBooks.map(entry=>entry===book?{...book,...updated}:entry);
+      else state.books = [...previousBooks,{...updated,id:id(),categories:[]}];
+      try {
+        save();
+      } catch {
+        state.books = previousBooks;
+        if (prep) state.prepTile = item;
+        message.textContent = 'Nie udało się zapisać zmian na tym urządzeniu.';
+        message.hidden = false;
+        button.disabled = false;
+        return;
+      }
+      closeForm();
+      render();
+      toast(prep?'Kafelek zapisany':existing?'Książka zaktualizowana':'Książka dodana');
+    });
+    const input = document.querySelector('#book-photo');
+    const preview = document.querySelector('#book-photo-preview');
+    let previewUrl;
+    input.addEventListener('change',()=>{
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      const file = input.files[0];
+      if (!file) return;
+      previewUrl = URL.createObjectURL(file);
+      preview.innerHTML = `<img class="recipe-photo-preview" src="${previewUrl}" alt="Podgląd wybranego zdjęcia">`;
+      const remove = document.querySelector('#edit-form [name=removePhoto]');
+      if (remove) remove.checked=false;
+    });
+    formCleanup = ()=>{if(previewUrl) URL.revokeObjectURL(previewUrl);};
+    document.querySelector('#delete-book')?.addEventListener('click',()=>{
+      const departments = book.categories.length;
+      const recipes = book.categories.reduce((sum,category)=>sum+category.recipes.length,0);
+      const warning = departments ? ` Zawartość do usunięcia: działy (${departments}), przepisy (${recipes}).` : '';
+      if (!confirm(`Usunąć książkę „${book.name}”?${warning}`)) return;
+      const previous = state.books;
+      state.books = previous.filter(entry=>entry.id!==book.id);
+      try {
+        save();
+      } catch {
+        state.books = previous;
+        toast('Nie udało się usunąć książki.');
+        return;
+      }
+      closeForm();
+      navigate('home');
+      toast('Książka usunięta');
+    });
   }
   function categoryForm(book,category=null){
     const existing=Boolean(category);
@@ -1379,6 +1470,7 @@
     if(act==='new-category'){const b=bookBy(p[0]);return categoryForm(b)}
     if(act==='edit-category'){const b=bookBy(p[0]),c=catBy(b,p[1]);return categoryForm(b,c)}
     if (act==='prep-index') return navigate('prep-index');
+    if (act==='edit-prep-tile') return bookForm(null,true);
     if (act==='add-index-prep') return prepForm();
     if (act==='prep-entry') return navigate(`prep-entry:${p[0]}`);
     if (act==='edit-index-prep' || act==='delete-index-prep') {
