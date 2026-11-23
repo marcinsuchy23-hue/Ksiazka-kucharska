@@ -120,7 +120,6 @@
     .baker-carry {grid-column:1/-1}
     .section-editor:first-child .baker-carry {display:none}
     .stage-mass {
-      white-space:pre-line;
       margin:12px 0 0;
       text-align:right;
       color:var(--green);
@@ -828,13 +827,14 @@
         }
         return updateStageMass(section,amounts,recipe.sections[i].ingredients);
       });
-      const mass = plannedMass===undefined ? currentMasses[selectedStage] : {min:plannedMass,max:plannedMass,partial:false};
+      const mass = plannedMass===undefined ? currentMasses[selectedStage] : {min:plannedMass,max:plannedMass,partial:false,estimated:baseMasses[selectedStage]?.estimated};
       const messages = [];
       const limit = Number(mixerLimit.value);
       if (mass && (limit>0 || gramsPerPan>0)) {
         messages.push(recipe.sections[selectedStage].name || `Etap ${selectedStage+1}`);
         if (limit>0) {
-          if (mass.min>limit) messages.push(`Przekroczony limit robota o co najmniej ${formatGrams(mass.min-limit)}`);
+          if (mass.estimated) messages.push(`Szacunkowa masa: ${formatQuantityBounds(mass,'g')}. Limit robota: ${formatGrams(limit)}`);
+          else if (mass.min>limit) messages.push(`Przekroczony limit robota o co najmniej ${formatGrams(mass.min-limit)}`);
           else if (mass.partial || mass.max>limit) messages.push('Nie można potwierdzić, czy masa mieści się w limicie robota');
           else messages.push(`Masa mieści się w limicie robota (${formatGrams(limit)})`);
         }
@@ -842,7 +842,7 @@
           if (!mass.partial && mass.min===mass.max) {
             const full = Math.floor((mass.min+1e-8)/gramsPerPan);
             const remainder = Math.max(0,mass.min-full*gramsPerPan);
-            messages.push(`Pełne foremki: ${full}. Pozostanie: ${formatGrams(remainder)}`);
+            messages.push(`${mass.estimated?'Szacunkowo pełne foremki':'Pełne foremki'}: ${full}. Pozostanie: ${formatGrams(remainder)}`);
           } else messages.push('Dokładna liczba foremek wymaga pełnej masy etapu');
         }
       }
@@ -921,7 +921,17 @@
   }
 
   function summarizeMass(amounts,ingredients = []) {
-    return summarizeBounds(amounts.map((amount,i)=>massInGrams(amount,ingredients[i]?.name)));
+    let estimated = false;
+    const bounds = amounts.map((amount,i)=>{
+      const name = ingredients[i]?.name;
+      const mass = massInGrams(amount,name);
+      if (mass) return mass;
+      const volume = quantityBounds(amount,volumeUnit);
+      if (volume) estimated = true;
+      return volume;
+    });
+    const total = summarizeBounds(bounds);
+    return total ? {...total,estimated} : null;
   }
 
   function updateBakerPercentages(section,stage,amounts,ratio,previous) {
@@ -978,14 +988,11 @@
   function updateStageMass(section,amounts,ingredients = []) {
     const output = section.querySelector('[data-stage-mass]');
     const mass = summarizeMass(amounts,ingredients);
-    const volumeBounds = amounts.map(amount=>quantityBounds(amount,volumeUnit));
-    const volume = summarizeBounds(volumeBounds);
-    const waterByVolume = volumeBounds.some((bounds,i)=>bounds && waterIngredient(ingredients[i]?.name));
-    const lines = [];
-    if (mass) lines.push(`Masa etapu: ${formatQuantityBounds(mass,'g')}${mass.partial?' (suma podanych mas)':''}`);
-    if (volume) lines.push(`Objętość etapu: ${formatQuantityBounds(volume,'ml')}${waterByVolume?' (woda uwzględniona też w masie)':''}`);
-    output.hidden = !lines.length;
-    output.textContent = lines.join('\n');
+    output.hidden = !mass;
+    const notes = [];
+    if (mass?.estimated) notes.push('dla płynów przyjęto 1 ml ≈ 1 g');
+    if (mass?.partial) notes.push('suma podanych mas');
+    output.textContent = mass ? `Masa etapu: ${mass.estimated?'ok. ':''}${formatQuantityBounds(mass,'g')}${notes.length?' ('+notes.join(', ')+')':''}` : '';
     return mass;
   }
 
