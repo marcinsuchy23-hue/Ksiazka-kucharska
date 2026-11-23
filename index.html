@@ -33,11 +33,12 @@
     }
     .recipe-actions {flex-wrap:wrap}
     .ingredient-actions {display:flex;align-items:center;gap:3px}
-    .ingredient-actions [data-move-ingredient] {
-      width:30px;min-height:36px;padding:0;border:0;border-radius:8px;background:#eeece4;
-      color:var(--green);font-weight:700
+    .ingredient-actions [data-drag-ingredient] {
+      width:38px;min-height:40px;padding:0;border:0;border-radius:8px;background:#eeece4;
+      color:var(--green);font-size:20px;cursor:grab;touch-action:none;user-select:none
     }
-    .ingredient-actions [data-move-ingredient]:disabled {opacity:.4;cursor:default}
+    .ingredient-dragging {background:var(--green2);border-radius:8px}
+    .ingredient-dragging [data-drag-ingredient] {cursor:grabbing}
     .ingredient-actions .remove-small {min-width:24px;padding:0}
     .ingredient-dictation {margin-top:6px}
     .ingredient-dictation summary {cursor:pointer;color:var(--green);font-weight:700}
@@ -1445,7 +1446,86 @@
       });
   }
 
-  function ingredientMarkup(x={}){return `<div class="ingredient-editor"><input data-amount aria-label="Ilość" value="${esc(x.amount||'')}" placeholder="Ilość"><input data-ing-name aria-label="Składnik" value="${esc(x.name||'')}" placeholder="np. mąki"><span class="ingredient-actions"><button type="button" data-move-ingredient="up" aria-label="Przenieś składnik wyżej" disabled>↑</button><button type="button" data-move-ingredient="down" aria-label="Przenieś składnik niżej" disabled>↓</button><button class="remove-small" type="button" data-remove-ingredient aria-label="Usuń składnik">×</button></span></div>`}
+  function ingredientMarkup(x={}){return `<div class="ingredient-editor"><input data-amount aria-label="Ilość" value="${esc(x.amount||'')}" placeholder="Ilość"><input data-ing-name aria-label="Składnik" value="${esc(x.name||'')}" placeholder="np. mąki"><span class="ingredient-actions"><button type="button" data-drag-ingredient aria-label="Przeciągnij, aby zmienić kolejność składnika" aria-keyshortcuts="ArrowUp ArrowDown">☰</button><button class="remove-small" type="button" data-remove-ingredient aria-label="Usuń składnik">×</button></span></div>`}
+  function bindIngredientDragging(root) {
+    const scroller = root.closest('.dialog');
+    let drag;
+    let frame;
+
+    function reorder() {
+      const {row,group,y} = drag;
+      const next = [...group.children].find(candidate=>{
+        if (candidate===row) return false;
+        const bounds = candidate.getBoundingClientRect();
+        return y<bounds.top+bounds.height/2;
+      }) || null;
+      if (row.nextElementSibling!==next) group.insertBefore(row,next);
+    }
+
+    function autoScroll() {
+      if (!drag?.active || !root.isConnected) return;
+      const bounds = scroller.getBoundingClientRect();
+      const list = drag.group.getBoundingClientRect();
+      const margin = 48;
+      let speed = 0;
+      if (drag.y<bounds.top+margin && list.top<bounds.top) {
+        speed = -Math.min(16,(bounds.top+margin-drag.y)/3);
+      }
+      if (drag.y>bounds.bottom-margin && list.bottom>bounds.bottom) {
+        speed = Math.min(16,(drag.y-bounds.bottom+margin)/3);
+      }
+      if (speed) {
+        scroller.scrollTop += speed;
+        reorder();
+      }
+      frame = requestAnimationFrame(autoScroll);
+    }
+
+    function finish(event,cancelled=false) {
+      if (!drag || event.pointerId!==drag.pointer) return;
+      const {row,group,next,pointer} = drag;
+      drag = undefined;
+      cancelAnimationFrame(frame);
+      row.classList.remove('ingredient-dragging');
+      if (cancelled && group.contains(row)) group.insertBefore(row,next);
+      if (root.hasPointerCapture(pointer)) root.releasePointerCapture(pointer);
+    }
+
+    root.addEventListener('pointerdown',event=>{
+      const handle = event.target.closest('[data-drag-ingredient]');
+      if (!handle || drag || event.button!==0 || !event.isPrimary) return;
+      const row = handle.closest('.ingredient-editor');
+      const group = row.parentElement;
+      if (group.children.length<2) return;
+      drag = {row,group,next:row.nextElementSibling,pointer:event.pointerId,startY:event.clientY,y:event.clientY,active:false};
+      root.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+    root.addEventListener('pointermove',event=>{
+      if (!drag || event.pointerId!==drag.pointer) return;
+      drag.y = event.clientY;
+      if (!drag.active) {
+        if (Math.abs(drag.y-drag.startY)<5) return;
+        drag.active = true;
+        drag.row.classList.add('ingredient-dragging');
+        frame = requestAnimationFrame(autoScroll);
+      }
+      reorder();
+    });
+    root.addEventListener('pointerup',event=>finish(event));
+    root.addEventListener('pointercancel',event=>finish(event,true));
+    root.addEventListener('lostpointercapture',event=>finish(event,true));
+    root.addEventListener('keydown',event=>{
+      const handle = event.target.closest('[data-drag-ingredient]');
+      if (!handle || (event.key!=='ArrowUp' && event.key!=='ArrowDown')) return;
+      const row = handle.closest('.ingredient-editor');
+      event.preventDefault();
+      if (event.key==='ArrowUp') row.previousElementSibling?.before(row);
+      else row.nextElementSibling?.after(row);
+      handle.focus();
+    });
+  }
+
   function compressRecipePhoto(file,max=1400,quality=.78){return new Promise((resolve,reject)=>{const url=URL.createObjectURL(file),img=new Image();img.onload=()=>{try{const scale=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);URL.revokeObjectURL(url);resolve(canvas.toDataURL('image/jpeg',quality))}catch(e){URL.revokeObjectURL(url);reject(e)}};img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Invalid image'))};img.src=url})}
   function recipeForm(book,cat,old,draft=false){const existing=Boolean(old&&!draft);const initialServings=old?(Number(old.servings)||4):1;const sections=old?.sections?.length?old.sections:[{name:'',ingredients:[{amount:'',name:''}],instructions:''}];
     const content=`<form id="edit-form" class="form"><div class="field"><label for="recipe-name">Nazwa przepisu</label><input id="recipe-name" name="name" required maxlength="90" value="${esc(old?.name||'')}" placeholder="np. Sos pomidorowy"></div><div class="field"><label for="recipe-description">Krótki opis</label><textarea id="recipe-description" name="description" class="small-area" maxlength="280" placeholder="Kilka słów o tym przepisie…">${esc(old?.description||'')}</textarea></div><div class="field"><label for="recipe-photo-edit">Zdjęcie przepisu</label><input id="recipe-photo-edit" type="file" accept="image/*"><span class="scan-help">Możesz wybrać zdjęcie z galerii albo zrobić nowe aparatem.</span><div class="photo-preview-box" id="recipe-photo-preview">${old?.photo?`<img class="recipe-photo-preview" src="${esc(old.photo)}" alt="Podgląd zdjęcia przepisu">`:'<span class="scan-help">Nie dodano jeszcze zdjęcia.</span>'}</div>${old?.photo?`<label><input type="checkbox" name="removePhoto"> Usuń obecne zdjęcie przy zapisie</label>`:''}</div>${tileStyleFields(old)}<div class="field"><label for="recipe-servings">Podstawowa liczba porcji</label><input id="recipe-servings" name="servings" type="number" min="1" max="100" step="1" value="${initialServings}"><span class="scan-help">Na tej podstawie aplikacja przeliczy ilości składników.</span></div><div class="field"><label><input type="checkbox" name="showPansAndMixer" ${old?.showPansAndMixer!==false?'checked':''}> Pokaż foremki i limit robota</label></div><div class="field"><label><input type="checkbox" name="bakerPercentages" ${old?.bakerPercentages?'checked':''}> Procenty piekarskie</label><span class="scan-help">Dla pieczywa: wpisuj nazwy składników od „Mąka” lub „Woda”. Jeśli używasz zaczynu, podaj w etapie masę mąki i wody zawartą w wykorzystanej ilości zaczynu.</span></div><div id="sections">${sections.map((s,i)=>sectionMarkup(s,i,Boolean(old?.bakerPercentages))).join('')}</div><button type="button" class="add-link" id="add-section">＋ Dodaj część / etap</button><div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button><button class="primary-button">${existing?'Zapisz zmiany':'Zapisz przepis'}</button></div></form>`;
@@ -1471,7 +1551,6 @@
       source.value = '';
       status.textContent = `Dodano ${ingredients.length}. Sprawdź ilości i nazwy w wierszach powyżej.`;
       refreshEditorMass(section);
-      refreshIngredientOrder(section);
     });
     function refreshEditorMass(section) {
       const rows = section.querySelectorAll('.ingredient-editor');
@@ -1479,41 +1558,13 @@
         .filter(values=>values.some(value=>value.trim()));
       updateStageMass(section,amounts.map(([amount])=>amount),amounts.map(([,name])=>({name})));
     }
-    function refreshIngredientOrder(section) {
-      const rows = [...section.querySelectorAll('.ingredient-editor')];
-      rows.forEach((row,index)=>{
-        row.querySelector('[data-move-ingredient=up]').disabled = index===0;
-        row.querySelector('[data-move-ingredient=down]').disabled = index===rows.length-1;
-      });
-    }
-    sectionsRoot.querySelectorAll('[data-section]').forEach(section=>{
-      refreshEditorMass(section);
-      refreshIngredientOrder(section);
-    });
+    sectionsRoot.querySelectorAll('[data-section]').forEach(refreshEditorMass);
+    bindIngredientDragging(sectionsRoot);
     sectionsRoot.addEventListener('input',event=>{
       if (event.target.matches('[data-amount],[data-ing-name]')) refreshEditorMass(event.target.closest('[data-section]'));
     });
     sectionsRoot.addEventListener('click',event=>{
-      const move = event.target.closest('[data-move-ingredient]');
-      if (move) {
-        const row = move.closest('.ingredient-editor');
-        const before = row.previousElementSibling;
-        const after = row.nextElementSibling;
-        if (move.dataset.moveIngredient==='up' && before) before.before(row);
-        if (move.dataset.moveIngredient==='down' && after) after.after(row);
-        refreshIngredientOrder(row.closest('[data-section]'));
-        if (move.disabled) row.querySelector('[data-move-ingredient]:not(:disabled)')?.focus();
-        else move.focus();
-        return;
-      }
-      const add = event.target.closest('[data-add-ingredient]');
-      if (add) refreshIngredientOrder(add.closest('[data-section]'));
-      if (event.target.closest('[data-remove-ingredient]')) {
-        sectionsRoot.querySelectorAll('[data-section]').forEach(section=>{
-          refreshEditorMass(section);
-          refreshIngredientOrder(section);
-        });
-      }
+      if (event.target.closest('[data-remove-ingredient]')) sectionsRoot.querySelectorAll('[data-section]').forEach(refreshEditorMass);
     });
     const bakerToggle = document.querySelector('[name=bakerPercentages]');
     bakerToggle.addEventListener('change',()=>{
