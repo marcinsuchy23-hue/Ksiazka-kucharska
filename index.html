@@ -91,6 +91,7 @@
       color:var(--green);
       font-weight:750;
     }
+    html.app-swipe {overscroll-behavior-x:none}
     body.form-open {
       position:fixed;
       inset:var(--form-page-top,0px) 0 auto;
@@ -954,6 +955,8 @@
   }
   async function scanPhoto(file,book,cat){const imageUrl=URL.createObjectURL(file);showForm('Czytam zdjęcie',`<img class="scan-preview" src="${imageUrl}" alt="Wybrane zdjęcie przepisu"><div class="progress-track"><span style="width:30%"></span></div><p class="scan-status">Rozpoznaję tekst na urządzeniu… Przy pierwszym użyciu może to chwilę potrwać.</p><p class="scan-help" style="text-align:center">Najlepszy efekt dają wyraźne, równo ułożone zdjęcia drukowanego przepisu.</p>`);let worker;try{if(!window.Tesseract)throw new Error('Brak plików OCR');worker=await Tesseract.createWorker('pol',1,{workerPath:new URL('./worker.min.js',location.href).href,corePath:new URL('./tesseract-core-lstm.wasm.js',location.href).href,langPath:new URL('./',location.href).href,gzip:true});const result=await worker.recognize(file);const text=result.data.text||'';await worker.terminate();worker=null;URL.revokeObjectURL(imageUrl);if(!text.trim()){closeForm();toast('Nie udało się odczytać tekstu. Spróbuj wyraźniejszego zdjęcia.');return}const sourcePhoto=await compressRecipePhoto(file);reviewOcrText(text,book,cat,sourcePhoto)}catch(error){if(worker)try{await worker.terminate()}catch{}URL.revokeObjectURL(imageUrl);closeForm();toast('Nie udało się odczytać zdjęcia. Otwórz aplikację w przeglądarce przez plik startowy i spróbuj ponownie.')}}
   let displayedDepth = 0;
+  let useAppBackStack = false;
+  const appBackStack = [];
 
   function navigationState(depth) {
     return {cookbook:true,depth,route,search,homeSearch,scroll:window.scrollY};
@@ -972,11 +975,17 @@
     if (route.type==='home' && (type==='recipe' || type==='prep-entry')) homeSearch='';
     const changed = JSON.stringify(next)!==JSON.stringify(route);
     const depth = history.state?.cookbook ? history.state.depth : 0;
-    if (changed) history.replaceState(navigationState(depth),'');
+    if (changed) {
+      if (useAppBackStack) {
+        appBackStack.push(navigationState(appBackStack.length));
+        armNativeBack();
+      } else history.replaceState(navigationState(depth),'');
+    }
     route = next;
     if (type==='home' || type==='category') search='';
     render();
     window.scrollTo(0,0);
+    if (useAppBackStack) return;
     if (changed) {
       displayedDepth = depth+1;
       history.pushState(navigationState(displayedDepth),'');
@@ -984,49 +993,58 @@
     else history.replaceState(navigationState(depth),'');
   }
 
+  function showPreviousView(previous) {
+    closeForm();
+    route = previous.route;
+    search = previous.search;
+    homeSearch = previous.homeSearch;
+    render();
+    window.scrollTo(0,previous.scroll);
+  }
+
+  function armNativeBack() {
+    if (!history.state?.appBackGuard) history.pushState({appBackGuard:true},'');
+  }
+
   function setupBackNavigation() {
     history.scrollRestoration = 'manual';
-    history.replaceState(navigationState(0),'');
-    let pendingGesture;
-    let settleTimer;
-    function clearGesture() {
-      clearTimeout(settleTimer);
-      pendingGesture = undefined;
+    const standalone = navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+    useAppBackStack = appleTouchDevice && standalone;
+    if (!useAppBackStack) {
+      history.replaceState(navigationState(0),'');
+      window.addEventListener('popstate',event=>{
+        const previous = event.state;
+        if (!previous?.cookbook || previous.depth===displayedDepth) return;
+        if (previous.depth<displayedDepth-1) {
+          history.go(displayedDepth-1-previous.depth);
+          return;
+        }
+        displayedDepth = previous.depth;
+        showPreviousView(previous);
+      });
+      return;
     }
 
-    window.addEventListener('popstate',event=>{
-      const previous = event.state;
-      if (!previous?.cookbook) {
-        clearGesture();
-        return;
-      }
-      // A native edge swipe can skip history entries added by the app.
-      const destination = pendingGesture?.depth ?? Math.max(previous.depth,displayedDepth-1);
-      if (previous.depth<destination) {
-        history.go(destination-previous.depth);
-        return;
-      }
-      if (previous.depth===displayedDepth) return;
-      closeForm();
-      displayedDepth = previous.depth;
-      route = previous.route;
-      search = previous.search;
-      homeSearch = previous.homeSearch;
-      render();
-      window.scrollTo(0,previous.scroll);
-    });
-
-    const standalone = navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
-    if (!appleTouchDevice || !standalone) return;
+    document.documentElement.classList.add('app-swipe');
+    history.replaceState({appBackGuard:false},'');
     let edgeTouch;
+    let lastHandledSwipe = -Infinity;
+    window.addEventListener('popstate',()=>{
+      if (history.state?.appBackGuard) return;
+      if (appBackStack.length && performance.now()-lastHandledSwipe>500 && !document.querySelector('.form-overlay')) {
+        lastHandledSwipe = performance.now();
+        showPreviousView(appBackStack.pop());
+      }
+      if (appBackStack.length) armNativeBack();
+    });
     document.addEventListener('touchstart',event=>{
       edgeTouch = undefined;
-      clearGesture();
-      if (!history.state?.depth || event.touches.length!==1 || document.querySelector('.form-overlay') ||
+      if (!appBackStack.length || event.touches.length!==1 || document.querySelector('.form-overlay') ||
           event.target.closest('input,textarea,select,.prep-table-scroll')) return;
       const touch = event.touches[0];
       if (touch.clientX>24 || window.visualViewport?.scale>1.05) return;
-      edgeTouch = {id:touch.identifier,x:touch.clientX,y:touch.clientY,depth:displayedDepth,claimed:false};
+      lastHandledSwipe = -Infinity;
+      edgeTouch = {id:touch.identifier,x:touch.clientX,y:touch.clientY,depth:appBackStack.length,claimed:false};
     },{passive:true});
     document.addEventListener('touchmove',event=>{
       if (!edgeTouch) return;
@@ -1052,10 +1070,9 @@
       if (!touch || !gesture.claimed) return;
       const x = touch.clientX-gesture.x;
       const y = Math.abs(touch.clientY-gesture.y);
-      if (x>=65 && x>y*1.5 && gesture.depth===displayedDepth && history.state?.depth===displayedDepth) {
-        pendingGesture = {depth:displayedDepth-1};
-        settleTimer = setTimeout(clearGesture,500);
-        history.go(-1);
+      if (x>=65 && x>y*1.5 && gesture.depth===appBackStack.length) {
+        lastHandledSwipe = performance.now();
+        showPreviousView(appBackStack.pop());
       }
     },{passive:true});
     document.addEventListener('touchcancel',()=>{edgeTouch=undefined;},{passive:true});
