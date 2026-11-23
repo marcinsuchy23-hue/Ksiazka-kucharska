@@ -39,6 +39,15 @@
     }
     .ingredient-dragging {background:var(--green2);border-radius:8px}
     .ingredient-dragging [data-drag-ingredient] {cursor:grabbing}
+    .ingredient-link-button {width:32px;min-height:36px;padding:0;border:0;border-radius:8px;background:#eeece4}
+    .ingredient-link-button.is-linked {background:var(--green2);outline:1px solid var(--green)}
+    .ingredient-link-picker {grid-column:1/-1}
+    .ingredient-link-picker[hidden] {display:none}
+    .ingredient-link-picker select {width:100%;padding:7px}
+    .ingredient-linked-open {display:block;padding:3px 0;text-align:left;font-size:.9em}
+    .ingredient-linked-values {margin:12px 0 0}
+    .ingredient-linked-values dt {font-weight:750}
+    .ingredient-linked-values dd {margin:4px 0 12px;white-space:pre-wrap;overflow-wrap:anywhere}
     .ingredient-actions .remove-small {min-width:24px;padding:0}
     .ingredient-dictation {margin-top:6px}
     .ingredient-dictation summary {cursor:pointer;color:var(--green);font-weight:700}
@@ -288,7 +297,7 @@
     const base=Number(r.servings)||4;
     const ingredientRows=r.sections.flatMap((section,si)=>(section.ingredients||[]).map((ingredient,ii)=>({section:si,index:ii,sectionName:section.name||`Etap ${si+1}`,amount:ingredient.amount||'',name:ingredient.name||''})));
     const scaleable=ingredientRows.filter(item=>{const parsed=readQuantity(item.amount);return parsed&&Number.isFinite(parsed.value)&&parsed.value>0});
-    main.innerHTML=`<div class="recipe-screen" id="recipe-zoom-area">${crumb([{label:'Moja kuchnia',route:'home'},{label:b.name,route:`book:${b.id}`},{label:c.name,route:`category:${b.id}:${c.id}`},{label:r.name}])}${viewZoomControls('Widok przepisu','<button type="button" class="quiet-button" id="recipe-print">Zapisz / drukuj PDF</button>')}<article class="recipe-view"><header class="recipe-cover">${r.photo?`<img class="recipe-photo" src="${esc(r.photo)}" alt="Zdjęcie przepisu">`:''}<div class="eyebrow">${esc(c.name)} · ${esc(b.name)}</div><h1 class="heading">${esc(r.name)}</h1>${r.description?`<p class="recipe-description">${esc(r.description)}</p>`:''}</header><section class="portion-control" aria-label="Przeliczanie przepisu"><div class="calc-field"><label for="scale-scope">Przelicz</label><select id="scale-scope"><option value="all">Cały przepis</option>${r.sections.map((s,i)=>`<option value="${i}">Tylko: ${esc(s.name||`Etap ${i+1}`)}</option>`).join('')}</select></div><div class="calc-field"><label for="scale-mode">Według</label><select id="scale-mode"><option value="portions">Liczby porcji</option><option value="ingredient">Ilości składnika</option><option value="mass">Docelowej masy</option>${r.showPansAndMixer!==false?'<option value="pans">Liczby foremek</option>':''}</select></div><div class="calc-field portion-field" id="portion-setting"><label for="portion-count">Porcje</label><input id="portion-count" type="number" min="1" max="100" step="1" value="${base}"></div><div id="ingredient-setting" class="calc-field" hidden><label for="scale-ingredient">Składnik</label><select id="scale-ingredient"></select></div><div id="target-setting" class="calc-field" hidden><label for="scale-target">Nowa ilość</label><input id="scale-target" type="text" placeholder="np. 300 g"></div><div class="calc-field" id="target-mass-setting" hidden><label for="target-mass">Docelowa masa etapu (g)</label><input id="target-mass" type="number" min="1" inputmode="decimal"></div><div class="calc-field" id="pan-count-setting" hidden><label for="pan-count">Liczba foremek</label><input id="pan-count" type="number" min="1" step="1" inputmode="numeric"></div><details class="baking-settings" ${r.showPansAndMixer===false?'hidden':''}><summary>Foremki i limit robota</summary><div class="baking-fields"><div class="calc-field"><label for="pan-mass">Ciasto na foremkę (g)</label><input id="pan-mass" type="number" min="1" inputmode="decimal"></div><div class="calc-field"><label for="mixer-limit">Limit masy ciasta robota (g)</label><input id="mixer-limit" type="number" min="1" inputmode="decimal"></div></div></details><p id="baking-summary" class="calc-note" aria-live="polite" hidden></p><p id="scale-note" class="calc-note">Wybierz, czy przeliczać cały przepis, czy tylko jeden etap.</p></section><div class="top-actions recipe-actions" style="justify-content:flex-end;margin:0 0 14px">${r.sections.length ? `<button type="button" class="quiet-button" data-action="cook-recipe:${b.id}:${c.id}:${r.id}">Tryb gotowania</button>` : ''}<button class="quiet-button" data-action="edit-recipe:${b.id}:${c.id}:${r.id}">Edytuj przepis</button><button type="button" class="quiet-button" data-action="copy-recipe:${b.id}:${c.id}:${r.id}">Skopiuj przepis</button><button class="danger-button" data-action="delete-recipe:${b.id}:${c.id}:${r.id}">Usuń</button></div>${r.sections.map((s,i)=>`<section class="recipe-section" data-scale-section="${i}"><h2>${esc(s.name||`Etap ${i+1}`)}</h2>${s.description?`<p class="section-description">${esc(s.description)}</p>`:''}${s.ingredients?.length?`<div class="label">Składniki</div><ul class="ingredient-list">${s.ingredients.map((x,j)=>`<li><span class="amount" data-base-amount="${esc(x.amount||'')}" data-scale-section="${i}" data-scale-item="${i}:${j}">${esc(x.amount||'')}</span><span>${esc(x.name||'')}${r.bakerPercentages?`<small class="baker-percent" data-baker-percent hidden></small>`:''}</span></li>`).join('')}</ul>`:''}${s.instructions?`<div class="label" style="margin-bottom:8px">Jak przygotować</div><p class="instructions">${esc(s.instructions)}</p>`:''}${r.bakerPercentages?`<p class="baker-summary" data-baker-summary hidden></p>`:''}<p class="stage-mass" data-stage-mass hidden></p></section>`).join('')}<div class="bake-journal-button"><button type="button" class="quiet-button" data-action="journal-recipe:${b.id}:${c.id}:${r.id}">Dziennik wypieków</button></div></article></div>`;
+    main.innerHTML=`<div class="recipe-screen" id="recipe-zoom-area">${crumb([{label:'Moja kuchnia',route:'home'},{label:b.name,route:`book:${b.id}`},{label:c.name,route:`category:${b.id}:${c.id}`},{label:r.name}])}${viewZoomControls('Widok przepisu','<button type="button" class="quiet-button" id="recipe-print">Zapisz / drukuj PDF</button>')}<article class="recipe-view"><header class="recipe-cover">${r.photo?`<img class="recipe-photo" src="${esc(r.photo)}" alt="Zdjęcie przepisu">`:''}<div class="eyebrow">${esc(c.name)} · ${esc(b.name)}</div><h1 class="heading">${esc(r.name)}</h1>${r.description?`<p class="recipe-description">${esc(r.description)}</p>`:''}</header><section class="portion-control" aria-label="Przeliczanie przepisu"><div class="calc-field"><label for="scale-scope">Przelicz</label><select id="scale-scope"><option value="all">Cały przepis</option>${r.sections.map((s,i)=>`<option value="${i}">Tylko: ${esc(s.name||`Etap ${i+1}`)}</option>`).join('')}</select></div><div class="calc-field"><label for="scale-mode">Według</label><select id="scale-mode"><option value="portions">Liczby porcji</option><option value="ingredient">Ilości składnika</option><option value="mass">Docelowej masy</option>${r.showPansAndMixer!==false?'<option value="pans">Liczby foremek</option>':''}</select></div><div class="calc-field portion-field" id="portion-setting"><label for="portion-count">Porcje</label><input id="portion-count" type="number" min="1" max="100" step="1" value="${base}"></div><div id="ingredient-setting" class="calc-field" hidden><label for="scale-ingredient">Składnik</label><select id="scale-ingredient"></select></div><div id="target-setting" class="calc-field" hidden><label for="scale-target">Nowa ilość</label><input id="scale-target" type="text" placeholder="np. 300 g"></div><div class="calc-field" id="target-mass-setting" hidden><label for="target-mass">Docelowa masa etapu (g)</label><input id="target-mass" type="number" min="1" inputmode="decimal"></div><div class="calc-field" id="pan-count-setting" hidden><label for="pan-count">Liczba foremek</label><input id="pan-count" type="number" min="1" step="1" inputmode="numeric"></div><details class="baking-settings" ${r.showPansAndMixer===false?'hidden':''}><summary>Foremki i limit robota</summary><div class="baking-fields"><div class="calc-field"><label for="pan-mass">Ciasto na foremkę (g)</label><input id="pan-mass" type="number" min="1" inputmode="decimal"></div><div class="calc-field"><label for="mixer-limit">Limit masy ciasta robota (g)</label><input id="mixer-limit" type="number" min="1" inputmode="decimal"></div></div></details><p id="baking-summary" class="calc-note" aria-live="polite" hidden></p><p id="scale-note" class="calc-note">Wybierz, czy przeliczać cały przepis, czy tylko jeden etap.</p></section><div class="top-actions recipe-actions" style="justify-content:flex-end;margin:0 0 14px">${r.sections.length ? `<button type="button" class="quiet-button" data-action="cook-recipe:${b.id}:${c.id}:${r.id}">Tryb gotowania</button>` : ''}<button class="quiet-button" data-action="edit-recipe:${b.id}:${c.id}:${r.id}">Edytuj przepis</button><button type="button" class="quiet-button" data-action="copy-recipe:${b.id}:${c.id}:${r.id}">Skopiuj przepis</button><button class="danger-button" data-action="delete-recipe:${b.id}:${c.id}:${r.id}">Usuń</button></div>${r.sections.map((s,i)=>`<section class="recipe-section" data-scale-section="${i}"><h2>${esc(s.name||`Etap ${i+1}`)}</h2>${s.description?`<p class="section-description">${esc(s.description)}</p>`:''}${s.ingredients?.length?`<div class="label">Składniki</div><ul class="ingredient-list">${s.ingredients.map((x,j)=>`<li><span class="amount" data-base-amount="${esc(x.amount||'')}" data-scale-section="${i}" data-scale-item="${i}:${j}">${esc(x.amount||'')}</span><span>${esc(x.name||'')}${linkedIngredientButton(x)}${r.bakerPercentages?`<small class="baker-percent" data-baker-percent hidden></small>`:''}</span></li>`).join('')}</ul>`:''}${s.instructions?`<div class="label" style="margin-bottom:8px">Jak przygotować</div><p class="instructions">${esc(s.instructions)}</p>`:''}${r.bakerPercentages?`<p class="baker-summary" data-baker-summary hidden></p>`:''}<p class="stage-mass" data-stage-mass hidden></p></section>`).join('')}<div class="bake-journal-button"><button type="button" class="quiet-button" data-action="journal-recipe:${b.id}:${c.id}:${r.id}">Dziennik wypieków</button></div></article></div>`;
     setupRecipeScaling(r,base,scaleable);
     bindViewZoom(r.viewZoom,zoom=>{r.viewZoom=zoom;save();});
     main.querySelector('#recipe-print').addEventListener('click',()=>window.print());
@@ -1487,7 +1496,93 @@
       });
   }
 
-  function ingredientMarkup(x={}){return `<div class="ingredient-editor"><input data-amount aria-label="Ilość" value="${esc(x.amount||'')}" placeholder="Ilość"><input data-ing-name aria-label="Składnik" value="${esc(x.name||'')}" placeholder="np. mąki"><span class="ingredient-actions"><button type="button" data-drag-ingredient aria-label="Przeciągnij, aby zmienić kolejność składnika" aria-keyshortcuts="ArrowUp ArrowDown">☰</button><button class="remove-small" type="button" data-remove-ingredient aria-label="Usuń składnik">×</button></span></div>`}
+  function ingredientMarkup(x={}) {
+    const canLink = x.tableLink || state.tables.some(table=>table.rows.length);
+    return `<div class="ingredient-editor" data-table-link="${esc(x.tableLink||'')}">
+      <input data-amount aria-label="Ilość" value="${esc(x.amount||'')}" placeholder="Ilość">
+      <input data-ing-name aria-label="Składnik" value="${esc(x.name||'')}" placeholder="np. mąki">
+      <span class="ingredient-actions">
+        ${canLink?`<button type="button" data-link-ingredient class="ingredient-link-button${x.tableLink?' is-linked':''}"
+          aria-label="Powiąż składnik z tabelą" title="Powiąż składnik z tabelą" aria-expanded="false">🔗</button>`:''}
+        <button type="button" data-drag-ingredient aria-label="Przeciągnij, aby zmienić kolejność składnika" aria-keyshortcuts="ArrowUp ArrowDown">☰</button>
+        <button class="remove-small" type="button" data-remove-ingredient aria-label="Usuń składnik">×</button>
+      </span>
+      ${canLink?`<div class="field ingredient-link-picker" data-ingredient-link-picker hidden>
+        <label>Wpis z tabeli<select data-ingredient-table-link></select></label>
+      </div>`:''}
+    </div>`;
+  }
+
+  function tableRowName(table,row) {
+    const column = table.columns.find(column=>row.cells[column.id]?.trim());
+    return column ? row.cells[column.id] : 'Wiersz tabeli';
+  }
+
+  function resolveIngredientLink(link) {
+    const [tableId,rowId] = String(link||'').split(':');
+    const table = state.tables.find(item=>item.id===tableId);
+    const row = table?.rows.find(item=>item.id===rowId);
+    return row ? {table,row} : null;
+  }
+
+  function linkedIngredientButton(ingredient) {
+    const linked = resolveIngredientLink(ingredient.tableLink);
+    if (!linked) return '';
+    const {table,row} = linked;
+    return `<button type="button" class="text-button ingredient-linked-open"
+      data-action="open-linked-table-row:${esc(table.id)}:${esc(row.id)}">Otwórz: ${esc(tableRowName(table,row))}</button>`;
+  }
+
+  function openLinkedTableRow(link) {
+    const linked = resolveIngredientLink(link);
+    if (!linked) return;
+    const {table,row} = linked;
+    showForm(tableRowName(table,row),`<p class="scan-help">${esc(table.name)}</p><dl class="ingredient-linked-values">
+      ${table.columns.map(column=>`<dt>${esc(column.label)}</dt><dd>${esc(row.cells[column.id]||'—')}</dd>`).join('')}
+    </dl>`);
+  }
+
+  function ingredientFromEditor(row) {
+    return {
+      amount:row.querySelector('[data-amount]').value.trim(),
+      name:row.querySelector('[data-ing-name]').value.trim(),
+      ...(row.dataset.tableLink?{tableLink:row.dataset.tableLink}:{})
+    };
+  }
+
+  function bindIngredientLinks(root) {
+    root.addEventListener('click',event=>{
+      const button = event.target.closest('[data-link-ingredient]');
+      if (!button) return;
+      const row = button.closest('.ingredient-editor');
+      const picker = row.querySelector('[data-ingredient-link-picker]');
+      picker.hidden = !picker.hidden;
+      button.setAttribute('aria-expanded',String(!picker.hidden));
+      if (picker.hidden) return;
+      const select = picker.querySelector('select');
+      const value = row.dataset.tableLink || '';
+      select.innerHTML = `<option value="">Brak powiązania</option>
+        ${value&&!resolveIngredientLink(value)?`<option value="${esc(value)}">Niedostępny wpis</option>`:''}
+        ${state.tables.filter(table=>table.rows.length).map(table=>`<optgroup label="${esc(table.name)}">
+          ${table.rows.map(item=>`<option value="${esc(table.id)}:${esc(item.id)}">${esc(tableRowName(table,item))}</option>`).join('')}
+        </optgroup>`).join('')}`;
+      select.value = value;
+      select.focus();
+    });
+    root.addEventListener('change',event=>{
+      if (!event.target.matches('[data-ingredient-table-link]')) return;
+      const row = event.target.closest('.ingredient-editor');
+      row.dataset.tableLink = event.target.value;
+      row.querySelector('[data-link-ingredient]').classList.toggle('is-linked',Boolean(event.target.value));
+      const linked = resolveIngredientLink(event.target.value);
+      const name = row.querySelector('[data-ing-name]');
+      if (linked && !name.value.trim()) {
+        name.value = tableRowName(linked.table,linked.row);
+        name.dispatchEvent(new Event('input',{bubbles:true}));
+      }
+    });
+  }
+
   function bindIngredientDragging(root) {
     const scroller = root.closest('.dialog');
     let drag;
@@ -1570,9 +1665,10 @@
   function compressRecipePhoto(file,max=1400,quality=.78){return new Promise((resolve,reject)=>{const url=URL.createObjectURL(file),img=new Image();img.onload=()=>{try{const scale=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);URL.revokeObjectURL(url);resolve(canvas.toDataURL('image/jpeg',quality))}catch(e){URL.revokeObjectURL(url);reject(e)}};img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Invalid image'))};img.src=url})}
   function recipeForm(book,cat,old,draft=false){const existing=Boolean(old&&!draft);const initialServings=old?(Number(old.servings)||4):1;const sections=old?.sections?.length?old.sections:[{name:'',ingredients:[{amount:'',name:''}],instructions:''}];
     const content=`<form id="edit-form" class="form"><div class="field"><label for="recipe-name">Nazwa przepisu</label><input id="recipe-name" name="name" required maxlength="90" value="${esc(old?.name||'')}" placeholder="np. Sos pomidorowy"></div><div class="field"><label for="recipe-description">Krótki opis</label><textarea id="recipe-description" name="description" class="small-area" maxlength="280" placeholder="Kilka słów o tym przepisie…">${esc(old?.description||'')}</textarea></div><div class="field"><label for="recipe-photo-edit">Zdjęcie przepisu</label><input id="recipe-photo-edit" type="file" accept="image/*"><span class="scan-help">Możesz wybrać zdjęcie z galerii albo zrobić nowe aparatem.</span><div class="photo-preview-box" id="recipe-photo-preview">${old?.photo?`<img class="recipe-photo-preview" src="${esc(old.photo)}" alt="Podgląd zdjęcia przepisu">`:'<span class="scan-help">Nie dodano jeszcze zdjęcia.</span>'}</div>${old?.photo?`<label><input type="checkbox" name="removePhoto"> Usuń obecne zdjęcie przy zapisie</label>`:''}</div>${tileStyleFields(old)}<div class="field"><label for="recipe-servings">Podstawowa liczba porcji</label><input id="recipe-servings" name="servings" type="number" min="1" max="100" step="1" value="${initialServings}"><span class="scan-help">Na tej podstawie aplikacja przeliczy ilości składników.</span></div><div class="field"><label><input type="checkbox" name="showPansAndMixer" ${(old?.showPansAndMixer ?? Boolean(old?.id))?'checked':''}> Pokaż foremki i limit robota</label></div><div class="field"><label><input type="checkbox" name="bakerPercentages" ${old?.bakerPercentages?'checked':''}> Procenty piekarskie</label><span class="scan-help">Dla pieczywa: wpisuj nazwy składników od „Mąka” lub „Woda”. Jeśli używasz zaczynu, podaj w etapie masę mąki i wody zawartą w wykorzystanej ilości zaczynu.</span></div><div id="sections">${sections.map((s,i)=>sectionMarkup(s,i,Boolean(old?.bakerPercentages))).join('')}</div><button type="button" class="add-link" id="add-section">＋ Dodaj część / etap</button><div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button><button class="primary-button">${existing?'Zapisz zmiany':'Zapisz przepis'}</button></div></form>`;
-    showForm(existing?'Edytuj przepis':'Nowy przepis',content,async(fd,form)=>{const name=String(fd.get('name')).trim();if(!name)return;const blocks=[...form.querySelectorAll('[data-section]')];const parsed=blocks.map((el,index)=>({name:el.querySelector('[data-s-name]').value.trim(),...(el.dataset.description?{description:el.dataset.description}:{}),instructions:el.querySelector('[data-s-instructions]').value.trim(),...readBakingStage(el,index),ingredients:[...el.querySelectorAll('.ingredient-editor')].map(row=>({amount:row.querySelector('[data-amount]').value.trim(),name:row.querySelector('[data-ing-name]').value.trim()})).filter(x=>x.name||x.amount)})).filter(s=>s.name||s.description||s.instructions||s.ingredients.length);let photo=old?.photo||'';const photoInput=form.querySelector('#recipe-photo-edit'),photoFile=photoInput?.files?.[0];if(fd.get('removePhoto')==='on')photo='';else if(photoFile){try{photo=await compressRecipePhoto(photoFile)}catch(err){toast('Nie udało się wczytać zdjęcia. Spróbuj wybrać je ponownie.');return}}const recipe={id:existing?old.id:id(),name,photo,...(old?.viewZoom?{viewZoom:old.viewZoom}:{}),tileTitleSize:Number(fd.get('tileTitleSize'))||26,tileTitleWeight:Number(fd.get('tileTitleWeight'))||700,description:String(fd.get('description')).trim(),showPansAndMixer:fd.get('showPansAndMixer')==='on',bakerPercentages:fd.get('bakerPercentages')==='on',servings:Math.min(100,Math.max(1,Number(fd.get('servings'))||initialServings)),sections:parsed};if(existing)Object.assign(old,recipe);else cat.recipes.push(recipe);save();closeForm();if(draft&&old?.id)navigate(`recipe:${book.id}:${cat.id}:${recipe.id}`);else render();toast(existing?'Przepis zaktualizowany':'Przepis zapisany')});
+    showForm(existing?'Edytuj przepis':'Nowy przepis',content,async(fd,form)=>{const name=String(fd.get('name')).trim();if(!name)return;const blocks=[...form.querySelectorAll('[data-section]')];const parsed=blocks.map((el,index)=>({name:el.querySelector('[data-s-name]').value.trim(),...(el.dataset.description?{description:el.dataset.description}:{}),instructions:el.querySelector('[data-s-instructions]').value.trim(),...readBakingStage(el,index),ingredients:[...el.querySelectorAll('.ingredient-editor')].map(ingredientFromEditor).filter(x=>x.name||x.amount||x.tableLink)})).filter(s=>s.name||s.description||s.instructions||s.ingredients.length);let photo=old?.photo||'';const photoInput=form.querySelector('#recipe-photo-edit'),photoFile=photoInput?.files?.[0];if(fd.get('removePhoto')==='on')photo='';else if(photoFile){try{photo=await compressRecipePhoto(photoFile)}catch(err){toast('Nie udało się wczytać zdjęcia. Spróbuj wybrać je ponownie.');return}}const recipe={id:existing?old.id:id(),name,photo,...(old?.viewZoom?{viewZoom:old.viewZoom}:{}),tileTitleSize:Number(fd.get('tileTitleSize'))||26,tileTitleWeight:Number(fd.get('tileTitleWeight'))||700,description:String(fd.get('description')).trim(),showPansAndMixer:fd.get('showPansAndMixer')==='on',bakerPercentages:fd.get('bakerPercentages')==='on',servings:Math.min(100,Math.max(1,Number(fd.get('servings'))||initialServings)),sections:parsed};if(existing)Object.assign(old,recipe);else cat.recipes.push(recipe);save();closeForm();if(draft&&old?.id)navigate(`recipe:${book.id}:${cat.id}:${recipe.id}`);else render();toast(existing?'Przepis zaktualizowany':'Przepis zapisany')});
     const photoInput=document.querySelector('#recipe-photo-edit'),photoPreview=document.querySelector('#recipe-photo-preview');photoInput.addEventListener('change',()=>{const file=photoInput.files?.[0];if(!file)return;const url=URL.createObjectURL(file);photoPreview.innerHTML=`<img class="recipe-photo-preview" src="${url}" alt="Podgląd wybranego zdjęcia">`;const remove=form=>form.querySelector('[name=removePhoto]');const removeCheck=document.querySelector('#edit-form [name=removePhoto]');if(removeCheck)removeCheck.checked=false});
-    const sectionsRoot=document.querySelector('#sections');const updateSectionOrder=()=>[...sectionsRoot.children].forEach((el,i)=>{el.querySelector('.section-editor-head .eyebrow').textContent=`Część przepisu ${i+1}`;el.querySelector('[data-move-section="up"]').disabled=i===0;el.querySelector('[data-move-section="down"]').disabled=i===sectionsRoot.children.length-1});updateSectionOrder();sectionsRoot.addEventListener('click',e=>{const move=e.target.closest('[data-move-section]');if(move){const item=move.closest('[data-section]');if(move.dataset.moveSection==='up'&&item.previousElementSibling)sectionsRoot.insertBefore(item,item.previousElementSibling);else if(move.dataset.moveSection==='down'&&item.nextElementSibling)sectionsRoot.insertBefore(item.nextElementSibling,item);updateSectionOrder();return}if(e.target.closest('[data-add-ingredient]')){const container=e.target.closest('[data-section]').querySelector('[data-ingredients]');container.insertAdjacentHTML('beforeend',ingredientMarkup());container.lastElementChild.querySelector('[data-amount]').focus()}if(e.target.closest('[data-remove-ingredient]')){const group=e.target.closest('[data-ingredients]');if(group.children.length>1)e.target.closest('.ingredient-editor').remove();else{group.firstElementChild.querySelectorAll('input').forEach(x=>x.value='')}}if(e.target.closest('[data-remove-section]')){if(sectionsRoot.children.length>1)e.target.closest('[data-section]').remove();else toast('Przepis musi mieć przynajmniej jeden etap');updateSectionOrder()}});
+    const sectionsRoot=document.querySelector('#sections');const updateSectionOrder=()=>[...sectionsRoot.children].forEach((el,i)=>{el.querySelector('.section-editor-head .eyebrow').textContent=`Część przepisu ${i+1}`;el.querySelector('[data-move-section="up"]').disabled=i===0;el.querySelector('[data-move-section="down"]').disabled=i===sectionsRoot.children.length-1});updateSectionOrder();sectionsRoot.addEventListener('click',e=>{const move=e.target.closest('[data-move-section]');if(move){const item=move.closest('[data-section]');if(move.dataset.moveSection==='up'&&item.previousElementSibling)sectionsRoot.insertBefore(item,item.previousElementSibling);else if(move.dataset.moveSection==='down'&&item.nextElementSibling)sectionsRoot.insertBefore(item.nextElementSibling,item);updateSectionOrder();return}if(e.target.closest('[data-add-ingredient]')){const container=e.target.closest('[data-section]').querySelector('[data-ingredients]');container.insertAdjacentHTML('beforeend',ingredientMarkup());container.lastElementChild.querySelector('[data-amount]').focus()}if(e.target.closest('[data-remove-ingredient]')){const group=e.target.closest('[data-ingredients]');if(group.children.length>1)e.target.closest('.ingredient-editor').remove();else{const row=group.firstElementChild;row.querySelectorAll('input').forEach(x=>x.value='');row.dataset.tableLink='';
+      const select=row.querySelector('[data-ingredient-table-link]');if(select){select.value='';row.querySelector('[data-link-ingredient]').classList.remove('is-linked')}}}if(e.target.closest('[data-remove-section]')){if(sectionsRoot.children.length>1)e.target.closest('[data-section]').remove();else toast('Przepis musi mieć przynajmniej jeden etap');updateSectionOrder()}});
     sectionsRoot.addEventListener('click',event=>{
       const button = event.target.closest('[data-insert-dictation]');
       if (!button) return;
@@ -1586,7 +1682,7 @@
       }
       const container = section.querySelector('[data-ingredients]');
       for (const row of container.querySelectorAll('.ingredient-editor')) {
-        if (!row.querySelector('[data-amount]').value.trim() && !row.querySelector('[data-ing-name]').value.trim()) row.remove();
+        if (!row.dataset.tableLink && !row.querySelector('[data-amount]').value.trim() && !row.querySelector('[data-ing-name]').value.trim()) row.remove();
       }
       container.insertAdjacentHTML('beforeend',ingredients.map(ingredientMarkup).join(''));
       source.value = '';
@@ -1601,6 +1697,7 @@
     }
     sectionsRoot.querySelectorAll('[data-section]').forEach(refreshEditorMass);
     bindIngredientDragging(sectionsRoot);
+    bindIngredientLinks(sectionsRoot);
     sectionsRoot.addEventListener('input',event=>{
       if (event.target.matches('[data-amount],[data-ing-name]')) refreshEditorMass(event.target.closest('[data-section]'));
     });
@@ -1807,6 +1904,7 @@
     if(act==='book')return navigate(`book:${p[0]}`);if(act==='category')return navigate(`category:${p[0]}:${p[1]}`);if(act==='recipe')return navigate(`recipe:${p[0]}:${p[1]}:${p[2]}`);
     if (act==='add-home-item') return addHomeItem();
     if (act==='choose-table-template') return chooseTableTemplate();
+    if (act==='open-linked-table-row') return openLinkedTableRow(p.join(':'));
     if (act==='custom-table') return navigate(`custom-table:${p[0]}`);
     if (act==='edit-custom-table' || act==='add-table-row' || act==='edit-table-row') {
       const table = state.tables.find(item=>item.id===p[0]);
