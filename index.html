@@ -1392,15 +1392,23 @@
       ['szt.','szt\\.?|sztuk(?:a|i|ę)?'], ['łyżka','łyż(?:ka|ki|kę|ek)'],
       ['łyżeczka','łyżecz(?:ka|ki|kę|ek)'], ['szklanka','szkl(?:anka|anki|ankę|anek)']
     ];
-    const unitStart = new RegExp('^(?:'+units.map(([,pattern])=>pattern).join('|')+')(?=\\s|$)','iu');
-    const nextMeasured = new RegExp('\\s+(?:i\\s+)?(?=\\d+(?:[,.]\\d+)?\\s*(?:'+
-      units.map(([,pattern])=>pattern).join('|')+')(?=\\s|$))','giu');
+    const unitPattern = units.map(([,pattern])=>pattern).join('|');
+    const unitStart = new RegExp(String.raw`^(?:${unitPattern})(?=\s|$)`,'iu');
+    const nextMeasured = new RegExp(String.raw`\s+(?:i\s+)?(?=\d+(?:[,.]\d+)?\s*(?:${unitPattern})(?=\s|$))`,'giu');
+    const lastMeasured = new RegExp(String.raw`^(\p{L}.*?)\s+(\d+\s+\d+/\d+|\d+/\d+|\d+(?:[,.]\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞])\s*(${unitPattern})$`,'iu');
+    const canonicalUnit = unit => units.find(([,pattern])=>new RegExp('^(?:'+pattern+')$','iu').test(unit))?.[0] || unit;
     const basicNumbers = {pół:'0,5',jeden:'1',jedna:'1',jedną:'1',jedno:'1',dwa:'2',dwie:'2',trzy:'3',cztery:'4',pięć:'5',sześć:'6',siedem:'7',osiem:'8',dziewięć:'9',dziesięć:'10'};
     return text.split(/\r?\n|;|(?<!\d),|,(?!\d)/u)
-      .flatMap(line=>line.trim().replace(/^i\s+/iu,'').split(nextMeasured))
-      .map(chunk=>chunk.trim().replace(/^[•–-]\s*/u,'').replace(/[.!?]+$/u,'').trim())
+      .map(line=>line.trim().replace(/^i\s+/iu,'').replace(/^[•–-]\s*/u,'').replace(/[.!?]+$/u,'').trim())
+      .flatMap(line=>lastMeasured.test(line) ? [line] : line.split(nextMeasured))
+      .map(chunk=>chunk.trim())
       .filter(Boolean)
       .map(chunk=>{
+        const reversed = chunk.match(lastMeasured);
+        if (reversed) {
+          const [,name,number,unit] = reversed;
+          return {amount:number+' '+canonicalUnit(unit),name:name.trim().replace(/\s*[:–—-]$/u,'')};
+        }
         const first = chunk.match(/^([\p{L}]+)\s+/u);
         const word = first?.[1].toLocaleLowerCase('pl');
         const normalized = first && Object.hasOwn(basicNumbers,word) ? basicNumbers[word]+' '+chunk.slice(first[0].length) : chunk;
@@ -1411,8 +1419,7 @@
         const unit = tail.match(unitStart)?.[0];
         const name = unit ? tail.slice(unit.length).trim() : tail;
         if (!name) return {amount:'',name:chunk};
-        const canonical = units.find(([,pattern])=>unit && new RegExp('^(?:'+pattern+')$','iu').test(unit))?.[0];
-        return {amount:canonical ? number+' '+canonical : number,name};
+        return {amount:unit ? number+' '+canonicalUnit(unit) : number,name};
       });
   }
 
