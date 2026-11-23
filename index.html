@@ -953,6 +953,8 @@
     document.querySelector('#ocr-add-row').addEventListener('click',()=>{root.insertAdjacentHTML('beforeend',rowMarkup({type:'ingredient',amount:'',value:''}));root.lastElementChild.querySelector('[data-ocr-type]').focus()})
   }
   async function scanPhoto(file,book,cat){const imageUrl=URL.createObjectURL(file);showForm('Czytam zdjęcie',`<img class="scan-preview" src="${imageUrl}" alt="Wybrane zdjęcie przepisu"><div class="progress-track"><span style="width:30%"></span></div><p class="scan-status">Rozpoznaję tekst na urządzeniu… Przy pierwszym użyciu może to chwilę potrwać.</p><p class="scan-help" style="text-align:center">Najlepszy efekt dają wyraźne, równo ułożone zdjęcia drukowanego przepisu.</p>`);let worker;try{if(!window.Tesseract)throw new Error('Brak plików OCR');worker=await Tesseract.createWorker('pol',1,{workerPath:new URL('./worker.min.js',location.href).href,corePath:new URL('./tesseract-core-lstm.wasm.js',location.href).href,langPath:new URL('./',location.href).href,gzip:true});const result=await worker.recognize(file);const text=result.data.text||'';await worker.terminate();worker=null;URL.revokeObjectURL(imageUrl);if(!text.trim()){closeForm();toast('Nie udało się odczytać tekstu. Spróbuj wyraźniejszego zdjęcia.');return}const sourcePhoto=await compressRecipePhoto(file);reviewOcrText(text,book,cat,sourcePhoto)}catch(error){if(worker)try{await worker.terminate()}catch{}URL.revokeObjectURL(imageUrl);closeForm();toast('Nie udało się odczytać zdjęcia. Otwórz aplikację w przeglądarce przez plik startowy i spróbuj ponownie.')}}
+  let displayedDepth = 0;
+
   function navigationState(depth) {
     return {cookbook:true,depth,route,search,homeSearch,scroll:window.scrollY};
   }
@@ -975,17 +977,38 @@
     if (type==='home' || type==='category') search='';
     render();
     window.scrollTo(0,0);
-    if (changed) history.pushState(navigationState(depth+1),'');
+    if (changed) {
+      displayedDepth = depth+1;
+      history.pushState(navigationState(displayedDepth),'');
+    }
     else history.replaceState(navigationState(depth),'');
   }
 
   function setupBackNavigation() {
     history.scrollRestoration = 'manual';
     history.replaceState(navigationState(0),'');
+    let pendingGesture;
+    let settleTimer;
+    function clearGesture() {
+      clearTimeout(settleTimer);
+      pendingGesture = undefined;
+    }
+
     window.addEventListener('popstate',event=>{
       const previous = event.state;
-      if (!previous?.cookbook) return;
+      if (!previous?.cookbook) {
+        clearGesture();
+        return;
+      }
+      // A native edge swipe can skip history entries added by the app.
+      const destination = pendingGesture?.depth ?? Math.max(previous.depth,displayedDepth-1);
+      if (previous.depth<destination) {
+        history.go(destination-previous.depth);
+        return;
+      }
+      if (previous.depth===displayedDepth) return;
       closeForm();
+      displayedDepth = previous.depth;
       route = previous.route;
       search = previous.search;
       homeSearch = previous.homeSearch;
@@ -998,11 +1021,12 @@
     let edgeTouch;
     document.addEventListener('touchstart',event=>{
       edgeTouch = undefined;
+      clearGesture();
       if (!history.state?.depth || event.touches.length!==1 || document.querySelector('.form-overlay') ||
           event.target.closest('input,textarea,select,.prep-table-scroll')) return;
       const touch = event.touches[0];
       if (touch.clientX>24 || window.visualViewport?.scale>1.05) return;
-      edgeTouch = {id:touch.identifier,x:touch.clientX,y:touch.clientY,claimed:false};
+      edgeTouch = {id:touch.identifier,x:touch.clientX,y:touch.clientY,depth:displayedDepth,claimed:false};
     },{passive:true});
     document.addEventListener('touchmove',event=>{
       if (!edgeTouch) return;
@@ -1028,7 +1052,11 @@
       if (!touch || !gesture.claimed) return;
       const x = touch.clientX-gesture.x;
       const y = Math.abs(touch.clientY-gesture.y);
-      if (x>=65 && x>y*1.5 && history.state?.depth>0) history.back();
+      if (x>=65 && x>y*1.5 && gesture.depth===displayedDepth && history.state?.depth===displayedDepth) {
+        pendingGesture = {depth:displayedDepth-1};
+        settleTimer = setTimeout(clearGesture,500);
+        history.go(-1);
+      }
     },{passive:true});
     document.addEventListener('touchcancel',()=>{edgeTouch=undefined;},{passive:true});
   }
