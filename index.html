@@ -277,13 +277,16 @@
     main.querySelector('#recipe-zoom-in').addEventListener('click',()=>setZoom(zoom+.1,true));
   }
 
+  function mentionsPrepMethod(text) {
+    return /\bsv\b|\bsous[-–\s]+vide\b|(?<![\p{L}\d])(?:konfit(?!ur)\p{L}*|confit)(?![\p{L}\d])/iu.test(text);
+  }
+
   function renderPrepIndex() {
     const categories = state.books.flatMap(book=>book.categories.map(category=>({book,category})));
-    const mentionsSousVide = value => /\bsv\b|\bsous[-–\s]+vide\b/iu.test(value);
     const existing = categories.flatMap(({book,category})=>category.recipes.filter(recipe=>{
       if (recipe.hideFromPrepIndex) return false;
-      if (recipe.prep || mentionsSousVide(category.name)) return true;
-      return mentionsSousVide([recipe.name,recipe.description,
+      if (recipe.prep || mentionsPrepMethod(category.name)) return true;
+      return mentionsPrepMethod([recipe.name,recipe.description,
         ...(recipe.sections||[]).flatMap(stage=>[stage.name,stage.instructions])].join(' '));
     }).map(recipe=>({book,category,recipe})));
     const prepName = ({recipe})=>recipe.prep?.name || recipe.name;
@@ -340,7 +343,7 @@
       ...(recipe.sections||[]).flatMap(stage=>[stage.name,stage.instructions])].join('\n');
     const pairs = new Map();
     for (const line of text.split(/\r?\n/)) {
-      if (!/\bsv\b|\bsous[-–\s]+vide\b|kąpiel/iu.test(line)) continue;
+      if (!mentionsPrepMethod(line) && !/kąpiel/iu.test(line)) continue;
       const temperatures = [...line.matchAll(/(?<![\d.,+–−-])(\d+(?:[,.]\d+)?)\s*°\s*C(?![\p{L}\d])/giu)];
       const durations = [...line.matchAll(/(?<![\d.,+–−-])\d+(?:[,.]\d+)?\s*(?:godz(?:in(?:a|y)?)?\.?|h|min(?:ut(?:a|y)?)?\.?)(?![\p{L}\d])/giu)];
       if (temperatures.length!==1 || durations.length!==1 ||
