@@ -979,10 +979,8 @@
     const changed = JSON.stringify(next)!==JSON.stringify(route);
     const depth = history.state?.cookbook ? history.state.depth : 0;
     if (changed) {
-      if (useAppBackStack) {
-        appBackStack.push(navigationState(appBackStack.length));
-        armNativeBack();
-      } else history.replaceState(navigationState(depth),'');
+      if (useAppBackStack) appBackStack.push(navigationState(appBackStack.length));
+      else history.replaceState(navigationState(depth),'');
     }
     route = next;
     if (type==='home' || type==='category') search='';
@@ -1005,10 +1003,6 @@
     window.scrollTo(0,previous.scroll);
   }
 
-  function armNativeBack() {
-    if (!history.state?.appBackGuard) history.pushState({appBackGuard:true},'');
-  }
-
   function setupBackNavigation() {
     history.scrollRestoration = 'manual';
     const standalone = navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
@@ -1029,26 +1023,17 @@
     }
 
     document.documentElement.classList.add('app-swipe');
-    history.replaceState({appBackGuard:false},'');
     let edgeTouch;
-    let lastHandledSwipe = -Infinity;
-    window.addEventListener('popstate',()=>{
-      if (history.state?.appBackGuard) return;
-      if (appBackStack.length && performance.now()-lastHandledSwipe>500 && !document.querySelector('.form-overlay')) {
-        lastHandledSwipe = performance.now();
-        showPreviousView(appBackStack.pop());
-      }
-      if (appBackStack.length) armNativeBack();
-    });
     document.addEventListener('touchstart',event=>{
       edgeTouch = undefined;
       if (!appBackStack.length || event.touches.length!==1 || document.querySelector('.form-overlay') ||
-          event.target.closest('input,textarea,select,.prep-table-scroll')) return;
+          event.target.closest('button,a,input,textarea,select,.prep-table-scroll')) return;
       const touch = event.touches[0];
-      if (touch.clientX>24 || window.visualViewport?.scale>1.05) return;
-      lastHandledSwipe = -Infinity;
+      if (touch.clientX>24 || window.visualViewport?.scale>1.05 || !event.cancelable) return;
+      // Claim the edge before iOS can show a screenshot from browser history.
+      event.preventDefault();
       edgeTouch = {id:touch.identifier,x:touch.clientX,y:touch.clientY,depth:appBackStack.length,claimed:false};
-    },{passive:true});
+    },{capture:true,passive:false});
     document.addEventListener('touchmove',event=>{
       if (!edgeTouch) return;
       const touch = event.touches[0];
@@ -1074,7 +1059,6 @@
       const x = touch.clientX-gesture.x;
       const y = Math.abs(touch.clientY-gesture.y);
       if (x>=65 && x>y*1.5 && gesture.depth===appBackStack.length) {
-        lastHandledSwipe = performance.now();
         showPreviousView(appBackStack.pop());
       }
     },{passive:true});
