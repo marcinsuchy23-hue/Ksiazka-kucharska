@@ -1317,6 +1317,7 @@
   }
 
   function closeForm() {
+    linkedPreviews.length = 0;
     formCleanup?.();
     formCleanup = undefined;
     const root = document.querySelector('#overlay-root');
@@ -1636,9 +1637,34 @@
       data-action="open-linked-table-row:${esc(table.id)}:${esc(row.id)}">Otwórz: ${esc(tableRowName(table,row))}</button>`;
   }
 
+  const linkedPreviews = [];
+
+  function showLinkedPreview(key,title,content) {
+    const previous = linkedPreviews.findIndex(preview=>preview.key===key);
+    if (previous>=0) linkedPreviews.splice(previous);
+    linkedPreviews.push({key,title,content});
+    renderLinkedPreview();
+  }
+
+  function renderLinkedPreview() {
+    const {title,content} = linkedPreviews.at(-1);
+    const back = linkedPreviews.length>1
+      ? '<button type="button" class="text-button" data-action="back-linked-preview">← Wróć do poprzedniego podglądu</button>'
+      : '';
+    showForm(title,back+content);
+  }
+
+  function openRecipeButton(recipeId) {
+    if (!recipeId) return '';
+    if (!resolveRecipeLink(recipeId)) return '<p class="scan-help">Powiązany przepis niedostępny</p>';
+    return `<div class="form-actions"><button type="button" class="primary-button" data-action="open-linked-recipe:${esc(recipeId)}">Otwórz przepis</button></div>`;
+  }
+
   function ingredientPreviewList(ingredients) {
-    return `<ul class="table-components-list">${ingredients.map(({amount,name})=>
-      `<li>${amount?`<strong>${esc(amount)}</strong> `:''}${esc(name||'')}</li>`).join('')}</ul>`;
+    return `<ul class="table-components-list">${ingredients.map(ingredient=>{
+      const {amount,name} = ingredient;
+      return `<li>${amount?`<strong>${esc(amount)}</strong> `:''}${esc(name||'')}${linkedIngredientButton(ingredient)}</li>`;
+    }).join('')}</ul>`;
   }
 
   function previewLinkedRecipe(recipeId) {
@@ -1646,20 +1672,20 @@
     if (!linked) return;
     const {book,category,recipe} = linked;
     const sections = (recipe.sections||[]).filter(section=>section.ingredients?.length);
-    showForm(recipe.name,`<p class="scan-help">${esc(book.name)} · ${esc(category.name)}</p>
+    showLinkedPreview('recipe:'+recipe.id,recipe.name,`<p class="scan-help">${esc(book.name)} · ${esc(category.name)}</p>
       ${recipe.description?`<p>${esc(recipe.description)}</p>`:''}
       ${sections.length?`<h3>Składniki</h3>${sections.map(section=>
         `${section.name?`<h4>${esc(section.name)}</h4>`:''}${ingredientPreviewList(section.ingredients)}`).join('')}`:''}
-      <div class="form-actions"><button type="button" class="primary-button" data-action="open-linked-recipe:${esc(recipe.id)}">Otwórz przepis</button></div>`);
+      ${openRecipeButton(recipe.id)}`);
   }
 
   function openLinkedTableRow(link) {
     const linked = resolveIngredientLink(link);
     if (!linked) return;
     const {table,row} = linked;
-    showForm(tableRowName(table,row),`<p class="scan-help">${esc(table.name)}</p><dl class="ingredient-linked-values">
+    showLinkedPreview('table:'+link,tableRowName(table,row),`<p class="scan-help">${esc(table.name)}</p><dl class="ingredient-linked-values">
       ${table.columns.map(column=>`<dt>${esc(column.label)}</dt><dd>${esc(row.cells[column.id]||'—')}</dd>`).join('')}
-    </dl>${row.components?.length?`<h3>Składniki</h3>${ingredientPreviewList(row.components)}`:''}`);
+    </dl>${row.components?.length?`<h3>Składniki</h3>${ingredientPreviewList(row.components)}`:''}${openRecipeButton(row.recipeLink)}`);
   }
 
   function ingredientFromEditor(row) {
@@ -1669,6 +1695,15 @@
       name:row.querySelector('[data-ing-name]').value.trim(),
       ...(link?.startsWith('recipe:') ? {recipeLink:link.slice(7)} : link ? {tableLink:link} : {})
     };
+  }
+
+  function recipeLinkOptions(currentRecipeId) {
+    return state.books.flatMap(book=>book.categories.map(category=>{
+      const recipes = category.recipes.filter(recipe=>recipe.id!==currentRecipeId);
+      return recipes.length ? `<optgroup label="${esc(book.name)} · ${esc(category.name)}">
+        ${recipes.map(recipe=>`<option value="recipe:${esc(recipe.id)}">${esc(recipe.name)}</option>`).join('')}
+      </optgroup>` : '';
+    })).join('');
   }
 
   function bindIngredientLinks(root, currentRecipeId) {
@@ -1682,14 +1717,8 @@
       if (picker.hidden) return;
       const select = picker.querySelector('select');
       const value = row.dataset.ingredientLink || '';
-      const recipeGroups = state.books.flatMap(book=>book.categories.map(category=>{
-        const recipes = category.recipes.filter(recipe=>recipe.id!==currentRecipeId);
-        return recipes.length ? `<optgroup label="${esc(book.name)} · ${esc(category.name)}">
-          ${recipes.map(recipe=>`<option value="recipe:${esc(recipe.id)}">${esc(recipe.name)}</option>`).join('')}
-        </optgroup>` : '';
-      })).join('');
       select.innerHTML = `<option value="">Brak powiązania</option>
-        ${recipeGroups}
+        ${recipeLinkOptions(currentRecipeId)}
         ${state.tables.filter(table=>table.rows.length).map(table=>`<optgroup label="Tabela · ${esc(table.name)}">
           ${table.rows.map(item=>`<option value="${esc(table.id)}:${esc(item.id)}">${esc(tableRowName(table,item))}</option>`).join('')}
         </optgroup>`).join('')}`;
@@ -1996,8 +2025,8 @@
         <table class="custom-table"><thead><tr>${table.columns.map(column=>`<th scope="col">${esc(column.label)}</th>`).join('')}
           <th scope="col" class="custom-table-row-action"><span class="custom-table-visually-hidden">Edycja</span></th></tr></thead>
           <tbody>${rows.map(row=>`<tr>${table.columns.map((column,i)=>`<td>${esc(row.cells[column.id]||'—')}
-            ${i===0&&row.components?.length?`<button type="button" class="text-button table-components-open"
-              data-action="open-linked-table-row:${esc(table.id)}:${esc(row.id)}">Składniki (${row.components.length})</button>`:''}</td>`).join('')}
+            ${i===0&&(row.recipeLink||row.components?.length)?`<button type="button" class="text-button table-components-open"
+              data-action="open-linked-table-row:${esc(table.id)}:${esc(row.id)}">${row.recipeLink?'Podgląd':`Składniki (${row.components.length})`}</button>`:''}</td>`).join('')}
             <td class="custom-table-row-action"><button type="button" class="custom-table-row-edit" aria-label="Edytuj wiersz" title="Edytuj wiersz" data-action="edit-table-row:${table.id}:${row.id}">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5 4 4M4 20l4.5-1 12-12a2 2 0 0 0-4-4l-12 12Z"/></svg>
             </button></td>
@@ -2021,6 +2050,11 @@
     showForm(row?'Edytuj wiersz':'Dodaj wiersz',`<form id="edit-form" class="form">
       ${table.columns.map(column=>`<div class="field"><label>${esc(column.label)}
         <textarea name="cell-${esc(column.id)}" rows="1" maxlength="3000">${esc(row?.cells[column.id]||'')}</textarea></label></div>`).join('')}
+      <div class="field"><label>Powiązany przepis
+        <select name="recipe-link"><option value="">Brak powiązania</option>
+          ${row?.recipeLink&&!resolveRecipeLink(row.recipeLink)?`<option value="recipe:${esc(row.recipeLink)}">Niedostępny przepis</option>`:''}
+          ${recipeLinkOptions()}
+        </select></label></div>
       <details class="table-components-editor" ${row?.components?.length?'open':''}>
         <summary>Składniki</summary>
         <div id="table-component-list">${(row?.components||[]).map(tableComponentFields).join('')}</div>
@@ -2035,16 +2069,20 @@
         amount:item.querySelector('[data-component-amount]').value.trim(),
         name:item.querySelector('[data-component-name]').value.trim()
       })).filter(item=>item.name || item.amount);
-      if (!Object.values(cells).some(Boolean) && !components.length) {
+      const recipeLink = String(data.get('recipe-link')||'').slice(7);
+      if (!Object.values(cells).some(Boolean) && !components.length && !recipeLink) {
         toast('Wpisz wartość przynajmniej w jednym polu.');
         return;
       }
       const updated = {...row,id:row?.id||id(),cells,components};
+      if (recipeLink) updated.recipeLink = recipeLink;
+      else delete updated.recipeLink;
       const rows = row ? table.rows.map(item=>item.id===row.id?updated:item) : [...table.rows,updated];
       if (!updateCustomTable({...table,rows})) return;
       closeForm();
       render();
     });
+    document.querySelector('[name="recipe-link"]').value = row?.recipeLink ? 'recipe:'+row.recipeLink : '';
     const componentList = document.querySelector('#table-component-list');
     document.querySelector('#add-table-component').addEventListener('click',()=>{
       componentList.insertAdjacentHTML('beforeend',tableComponentFields());
@@ -2065,6 +2103,10 @@
     if(act==='book')return navigate(`book:${p[0]}`);if(act==='category')return navigate(`category:${p[0]}:${p[1]}`);if(act==='recipe')return navigate(`recipe:${p[0]}:${p[1]}:${p[2]}`);
     if (act==='add-home-item') return addHomeItem();
     if (act==='choose-table-template') return chooseTableTemplate();
+    if (act==='back-linked-preview' && linkedPreviews.length>1) {
+      linkedPreviews.pop();
+      return renderLinkedPreview();
+    }
     if (act==='preview-linked-recipe') return previewLinkedRecipe(p[0]);
     if (act==='open-linked-recipe') {
       const linked = resolveRecipeLink(p[0]);
