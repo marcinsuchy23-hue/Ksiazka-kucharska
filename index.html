@@ -66,6 +66,12 @@
     .cooking-ingredients input {width:22px;height:22px}
     .cooking-ingredients input:checked + span {text-decoration:line-through;color:var(--muted)}
     .prep-list {margin:0 0 20px}
+    .table-components-editor {border:1px solid var(--line);border-radius:10px;padding:10px}
+    .table-components-editor summary {cursor:pointer;color:var(--green);font-weight:700}
+    .table-component-fields {display:grid;grid-template-columns:minmax(62px,.8fr) minmax(0,1.5fr) auto;gap:6px;margin:8px 0}
+    .table-component-fields input {min-width:0}
+    .table-components-list {padding-left:20px;margin:8px 0}
+    .table-components-open {display:block;font-size:.88em;padding:5px 0;text-align:left}
     .custom-table-actions {flex-wrap:wrap}
     .custom-table th,.custom-table td {min-width:100px;white-space:pre-wrap;vertical-align:top}
     .custom-table .custom-table-row-action {min-width:34px;width:34px;padding:3px;white-space:nowrap;vertical-align:top}
@@ -78,7 +84,7 @@
     .custom-column-field {display:flex;gap:8px;margin-bottom:8px}
     .custom-column-field input {min-width:0}
     @media print {
-      .custom-table-actions,.custom-table-search,.custom-table-row-action {display:none!important}
+      .custom-table-actions,.custom-table-search,.custom-table-row-action,.table-components-open {display:none!important}
       .custom-table {table-layout:fixed}
       .custom-table th,.custom-table td {min-width:0;overflow-wrap:anywhere}
       .custom-table tr {break-inside:avoid}
@@ -1619,7 +1625,8 @@
     const {table,row} = linked;
     showForm(tableRowName(table,row),`<p class="scan-help">${esc(table.name)}</p><dl class="ingredient-linked-values">
       ${table.columns.map(column=>`<dt>${esc(column.label)}</dt><dd>${esc(row.cells[column.id]||'—')}</dd>`).join('')}
-    </dl>`);
+    </dl>${row.components?.length?`<h3>Składniki</h3><ul class="table-components-list">${row.components.map(({amount,name})=>
+      `<li>${amount?`<strong>${esc(amount)}</strong> `:''}${esc(name)}</li>`).join('')}</ul>`:''}`);
   }
 
   function ingredientFromEditor(row) {
@@ -1793,7 +1800,7 @@
   const tableTemplates = {
     blank:{name:'',labels:['Nazwa','Uwagi']},
     prep:{name:'Prep',labels:['Produkt','Temperatura (°C)','Czas','Porcja','Uwagi']},
-    marinade:{name:'Zalewy i marynaty',labels:['Nazwa','Ilość wody','Sól','Cukier','Czas marynowania']},
+    marinade:{name:'Zalewy i marynaty',labels:['Nazwa','Czas marynowania','Uwagi']},
     conversions:{name:'Przeliczniki kuchenne',labels:['Produkt','Miara','Waga (g)','Uwagi']},
     yield:{name:'Wydajność produktów',labels:['Produkt','Waga przed obróbką','Waga po obróbce','Ubytek']}
   };
@@ -1873,7 +1880,7 @@
           }
         }
         if (!form.isConnected) return;
-        const rows = (table?.rows||[]).map(row=>({id:row.id,
+        const rows = (table?.rows||[]).map(row=>({...row,
           cells:Object.fromEntries(savedColumns.map(column=>[column.id,row.cells[column.id]||'']))}));
         const updated = {...table,id:table?.id||id(),name,photo,columns:savedColumns,rows};
         if (!updateCustomTable(updated)) return;
@@ -1936,12 +1943,15 @@
     function refresh() {
       const query = input.value.trim().toLocaleLowerCase('pl');
       const rows = table.rows.filter(row=>table.columns.some(column=>
-        String(row.cells[column.id]||'').toLocaleLowerCase('pl').includes(query)));
+        String(row.cells[column.id]||'').toLocaleLowerCase('pl').includes(query)) ||
+        row.components?.some(item=>`${item.amount} ${item.name}`.toLocaleLowerCase('pl').includes(query)));
       print.disabled = !rows.length;
       results.innerHTML = rows.length ? `<div class="prep-table-scroll prep-list" tabindex="0" role="region" aria-label="${esc(table.name)}">
         <table class="custom-table"><thead><tr>${table.columns.map(column=>`<th scope="col">${esc(column.label)}</th>`).join('')}
           <th scope="col" class="custom-table-row-action"><span class="custom-table-visually-hidden">Edycja</span></th></tr></thead>
-          <tbody>${rows.map(row=>`<tr>${table.columns.map(column=>`<td>${esc(row.cells[column.id]||'—')}</td>`).join('')}
+          <tbody>${rows.map(row=>`<tr>${table.columns.map((column,i)=>`<td>${esc(row.cells[column.id]||'—')}
+            ${i===0&&row.components?.length?`<button type="button" class="text-button table-components-open"
+              data-action="open-linked-table-row:${esc(table.id)}:${esc(row.id)}">Składniki (${row.components.length})</button>`:''}</td>`).join('')}
             <td class="custom-table-row-action"><button type="button" class="custom-table-row-edit" aria-label="Edytuj wiersz" title="Edytuj wiersz" data-action="edit-table-row:${table.id}:${row.id}">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5 4 4M4 20l4.5-1 12-12a2 2 0 0 0-4-4l-12 12Z"/></svg>
             </button></td>
@@ -1953,24 +1963,49 @@
     refresh();
   }
 
+  function tableComponentFields(item = {}) {
+    return `<div class="table-component-fields" data-table-component>
+      <input aria-label="Ilość składnika" data-component-amount maxlength="70" placeholder="Ilość" value="${esc(item.amount||'')}">
+      <input aria-label="Nazwa składnika" data-component-name maxlength="140" placeholder="Składnik" value="${esc(item.name||'')}">
+      <button type="button" class="remove-small" data-remove-table-component aria-label="Usuń składnik">×</button>
+    </div>`;
+  }
+
   function editCustomTableRow(table,row) {
     showForm(row?'Edytuj wiersz':'Dodaj wiersz',`<form id="edit-form" class="form">
       ${table.columns.map(column=>`<div class="field"><label>${esc(column.label)}
         <textarea name="cell-${esc(column.id)}" rows="1" maxlength="3000">${esc(row?.cells[column.id]||'')}</textarea></label></div>`).join('')}
+      <details class="table-components-editor" ${row?.components?.length?'open':''}>
+        <summary>Składniki</summary>
+        <div id="table-component-list">${(row?.components||[]).map(tableComponentFields).join('')}</div>
+        <button type="button" class="text-button" id="add-table-component">＋ Dodaj składnik</button>
+      </details>
       ${row?'<div><button type="button" class="danger-button" id="delete-table-row">Usuń wiersz</button></div>':''}
       <div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button>
         <button type="submit" class="primary-button">Zapisz wiersz</button></div>
-    </form>`,data=>{
+    </form>`,(data,form)=>{
       const cells = Object.fromEntries(table.columns.map(column=>[column.id,String(data.get('cell-'+column.id)||'').trim()]));
-      if (!Object.values(cells).some(Boolean)) {
+      const components = [...form.querySelectorAll('[data-table-component]')].map(item=>({
+        amount:item.querySelector('[data-component-amount]').value.trim(),
+        name:item.querySelector('[data-component-name]').value.trim()
+      })).filter(item=>item.name || item.amount);
+      if (!Object.values(cells).some(Boolean) && !components.length) {
         toast('Wpisz wartość przynajmniej w jednym polu.');
         return;
       }
-      const updated = {id:row?.id||id(),cells};
+      const updated = {...row,id:row?.id||id(),cells,components};
       const rows = row ? table.rows.map(item=>item.id===row.id?updated:item) : [...table.rows,updated];
       if (!updateCustomTable({...table,rows})) return;
       closeForm();
       render();
+    });
+    const componentList = document.querySelector('#table-component-list');
+    document.querySelector('#add-table-component').addEventListener('click',()=>{
+      componentList.insertAdjacentHTML('beforeend',tableComponentFields());
+      componentList.lastElementChild.querySelector('[data-component-name]').focus();
+    });
+    componentList.addEventListener('click',event=>{
+      event.target.closest('[data-remove-table-component]')?.closest('[data-table-component]').remove();
     });
     document.querySelector('#delete-table-row')?.addEventListener('click',()=>{
       if (!confirm('Usunąć ten wiersz z tabeli?')) return;
