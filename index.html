@@ -1625,9 +1625,9 @@
     if (ingredient.recipeLink) {
       const linked = resolveRecipeLink(ingredient.recipeLink);
       if (!linked) return '<small>Powiązany przepis niedostępny</small>';
-      const {book,category,recipe} = linked;
+      const {recipe} = linked;
       return `<button type="button" class="text-button ingredient-linked-open"
-        data-route="recipe:${esc(book.id)}:${esc(category.id)}:${esc(recipe.id)}">Otwórz: ${esc(recipe.name)}</button>`;
+        data-action="preview-linked-recipe:${esc(recipe.id)}">Podgląd: ${esc(recipe.name)}</button>`;
     }
     const linked = resolveIngredientLink(ingredient.tableLink);
     if (!linked) return '';
@@ -1636,14 +1636,30 @@
       data-action="open-linked-table-row:${esc(table.id)}:${esc(row.id)}">Otwórz: ${esc(tableRowName(table,row))}</button>`;
   }
 
+  function ingredientPreviewList(ingredients) {
+    return `<ul class="table-components-list">${ingredients.map(({amount,name})=>
+      `<li>${amount?`<strong>${esc(amount)}</strong> `:''}${esc(name||'')}</li>`).join('')}</ul>`;
+  }
+
+  function previewLinkedRecipe(recipeId) {
+    const linked = resolveRecipeLink(recipeId);
+    if (!linked) return;
+    const {book,category,recipe} = linked;
+    const sections = (recipe.sections||[]).filter(section=>section.ingredients?.length);
+    showForm(recipe.name,`<p class="scan-help">${esc(book.name)} · ${esc(category.name)}</p>
+      ${recipe.description?`<p>${esc(recipe.description)}</p>`:''}
+      ${sections.length?`<h3>Składniki</h3>${sections.map(section=>
+        `${section.name?`<h4>${esc(section.name)}</h4>`:''}${ingredientPreviewList(section.ingredients)}`).join('')}`:''}
+      <div class="form-actions"><button type="button" class="primary-button" data-action="open-linked-recipe:${esc(recipe.id)}">Otwórz przepis</button></div>`);
+  }
+
   function openLinkedTableRow(link) {
     const linked = resolveIngredientLink(link);
     if (!linked) return;
     const {table,row} = linked;
     showForm(tableRowName(table,row),`<p class="scan-help">${esc(table.name)}</p><dl class="ingredient-linked-values">
       ${table.columns.map(column=>`<dt>${esc(column.label)}</dt><dd>${esc(row.cells[column.id]||'—')}</dd>`).join('')}
-    </dl>${row.components?.length?`<h3>Składniki</h3><ul class="table-components-list">${row.components.map(({amount,name})=>
-      `<li>${amount?`<strong>${esc(amount)}</strong> `:''}${esc(name)}</li>`).join('')}</ul>`:''}`);
+    </dl>${row.components?.length?`<h3>Składniki</h3>${ingredientPreviewList(row.components)}`:''}`);
   }
 
   function ingredientFromEditor(row) {
@@ -2049,6 +2065,13 @@
     if(act==='book')return navigate(`book:${p[0]}`);if(act==='category')return navigate(`category:${p[0]}:${p[1]}`);if(act==='recipe')return navigate(`recipe:${p[0]}:${p[1]}:${p[2]}`);
     if (act==='add-home-item') return addHomeItem();
     if (act==='choose-table-template') return chooseTableTemplate();
+    if (act==='preview-linked-recipe') return previewLinkedRecipe(p[0]);
+    if (act==='open-linked-recipe') {
+      const linked = resolveRecipeLink(p[0]);
+      if (!linked) return;
+      closeForm();
+      return navigate(`recipe:${linked.book.id}:${linked.category.id}:${linked.recipe.id}`);
+    }
     if (act==='open-linked-table-row') return openLinkedTableRow(p.join(':'));
     if (act==='custom-table') return navigate(`custom-table:${p[0]}`);
     if (act==='edit-custom-table' || act==='add-table-row' || act==='edit-table-row') {
