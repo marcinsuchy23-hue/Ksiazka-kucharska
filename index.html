@@ -2099,19 +2099,50 @@
     }
   }
 
-  function importedRecipeDraft(recipe,source) {
+  async function fetchImportedRecipePhotos(recipe,endpoint,signal) {
+    const urls = [...new Set([recipe.coverPhoto,...recipe.instructions.flatMap(section=>section.photos||[])]
+      .filter(url=>recipeWebUrl(url)))];
+    const photos = new Map();
+    const limit = 8;
+    for (let i=0;i<Math.min(limit,urls.length)&&!signal.aborted;i+=2) {
+      await Promise.all(urls.slice(i,i+2).map(async url=>{
+        try {
+          const request = new URL(endpoint);
+          request.searchParams.delete('url');
+          request.searchParams.set('image',url);
+          const response = await fetch(request,{signal,credentials:'omit',referrerPolicy:'no-referrer'});
+          const type = response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase();
+          if (!response.ok || !/^image\/(?:jpeg|png|webp|gif|avif)$/.test(type||'')) return;
+          if (Number(response.headers.get('Content-Length'))>6_000_000) return;
+          const blob = await response.blob();
+          if (!signal.aborted && blob.size<=6_000_000) {
+            photos.set(url,await compressRecipePhoto(blob,1000,.72));
+          }
+        } catch {}
+      }));
+    }
+    return {photos,skipped:urls.length-photos.size,found:urls.length};
+  }
+
+  function importedRecipeDraft(recipe,source,{photos=new Map(),skipped=0,found}={}) {
     const ingredients = recipe.ingredients.map(line=>
       parseDictatedIngredients(line,{split:false})[0] || {amount:'',name:line});
-    const sections = recipe.instructions.map(({name,steps},index)=>({
+    const sections = recipe.instructions.map(({name,steps,photos:images},index)=>({
       name:(name || (recipe.instructions.length===1 ? 'Przygotowanie' : `Etap ${index+1}`)).slice(0,60),
       ingredients:[],
-      instructions:steps.join('\n\n')
+      instructions:steps.join('\n\n'),
+      photos:[...new Set(images||[])].filter(url=>url!==recipe.coverPhoto).map(url=>photos.get(url)).filter(Boolean)
     }));
     if (sections.length===1) sections[0].ingredients = ingredients;
     else if (ingredients.length || !sections.length) sections.unshift({name:'Składniki',ingredients,instructions:''});
     return {
       name:recipe.name.slice(0,90),description:recipe.description.slice(0,280),
-      servings:recipe.servings,sections,sourceUrl:source.href
+      servings:recipe.servings,sections,sourceUrl:source.href,photo:photos.get(recipe.coverPhoto)||'',
+      importNotice:[
+        !recipe.instructions.some(section=>section.steps.length)?'Nie udało się odczytać przygotowania. Możesz je dopisać w szkicu.':'',
+        skipped?`Pominięte zdjęcia (liczba: ${skipped}). Możesz dodać je ręcznie do szkicu.`
+          : found===0?'Nie udało się znaleźć zdjęć przepisu na stronie.':''
+      ].filter(Boolean).join(' ')
     };
   }
 
@@ -2122,6 +2153,7 @@
       <div class="field"><label for="recipe-import-url">Adres przepisu</label>
         <input id="recipe-import-url" name="link" type="url" required placeholder="https://blog-kulinarny.pl/przepis/…"></div>
       <p class="scan-help">Przepis trafi do działu „${esc(category.name)}” po sprawdzeniu i zapisaniu szkicu.</p>
+      <label><input type="checkbox" name="photos" checked> Pobierz zdjęcia przepisu</label>
       <details>
         <summary>Ustawienia importu</summary>
         <div class="field"><label for="recipe-import-endpoint">Adres usługi importu</label>
@@ -2162,7 +2194,14 @@
         if (!form.isConnected) return;
         const recipe = globalThis.recipeLinkImport.parse(html,source.href,responseUrl);
         if (!recipe) return status('Na tej stronie nie udało się znaleźć składników ani kroków przepisu.');
-        recipeForm(book,category,importedRecipeDraft(recipe,source),true);
+        clearTimeout(slow);
+        if (data.get('photos')==='on') {
+          status('Pobieram zdjęcia przepisu…');
+          const images = await fetchImportedRecipePhotos(recipe,endpoint,controller.signal);
+          if (form.isConnected) recipeForm(book,category,importedRecipeDraft(recipe,source,images),true);
+        } else {
+          recipeForm(book,category,importedRecipeDraft(recipe,source),true);
+        }
       } catch (error) {
         if (!form.isConnected) return;
         status(recipeImportMessage(error,endpoint,controller.signal.aborted));
@@ -2455,7 +2494,7 @@
   }
 
   function recipeForm(book,cat,old,draft=false){const existing=Boolean(old&&!draft);const initialServings=old?(Number(old.servings)||4):1;const sections=old?.sections?.length?old.sections:[{name:'',ingredients:[{amount:'',name:''}],instructions:''}];
-    const content=`<form id="edit-form" class="form"><div class="field"><label for="recipe-name">Nazwa przepisu</label><input id="recipe-name" name="name" required maxlength="90" value="${esc(old?.name||'')}" placeholder="np. Sos pomidorowy"></div>${recipeSourceMarkup(old?.sourceUrl)}<div class="field"><label for="recipe-description">Krótki opis</label><textarea id="recipe-description" name="description" class="small-area" maxlength="280" placeholder="Kilka słów o tym przepisie…">${esc(old?.description||'')}</textarea></div><div class="field"><label for="recipe-photo-edit">Zdjęcie przepisu</label><input id="recipe-photo-edit" type="file" accept="image/*"><span class="scan-help">Możesz wybrać zdjęcie z galerii albo zrobić nowe aparatem.</span><div class="photo-preview-box" id="recipe-photo-preview">${old?.photo?`<img class="recipe-photo-preview" src="${esc(old.photo)}" alt="Podgląd zdjęcia przepisu">`:'<span class="scan-help">Nie dodano jeszcze zdjęcia.</span>'}</div>${old?.photo?`<label><input type="checkbox" name="removePhoto"> Usuń obecne zdjęcie przy zapisie</label>`:''}</div>${tileStyleFields(old)}<div class="field"><label for="recipe-servings">Podstawowa liczba porcji</label><input id="recipe-servings" name="servings" type="number" min="1" max="100" step="1" value="${initialServings}"><span class="scan-help">Na tej podstawie aplikacja przeliczy ilości składników.</span></div><div class="field"><label><input type="checkbox" name="showPansAndMixer" ${(old?.showPansAndMixer ?? Boolean(old?.id))?'checked':''}> Pokaż foremki i limit robota</label></div><div class="field"><label><input type="checkbox" name="bakerPercentages" ${old?.bakerPercentages?'checked':''}> Procenty piekarskie</label><span class="scan-help">Dla pieczywa: wpisuj nazwy składników od „Mąka” lub „Woda”. Jeśli używasz zaczynu, podaj w etapie masę mąki i wody zawartą w wykorzystanej ilości zaczynu.</span></div><div id="sections">${sections.map((s,i)=>sectionMarkup(s,i,Boolean(old?.bakerPercentages))).join('')}</div><button type="button" class="add-link" id="add-section">＋ Dodaj część / etap</button><div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button><button class="primary-button">${existing?'Zapisz zmiany':'Zapisz przepis'}</button></div></form>`;
+    const content=`<form id="edit-form" class="form">${draft&&old?.importNotice?`<p class="scan-help" role="status">${esc(old.importNotice)}</p>`:''}<div class="field"><label for="recipe-name">Nazwa przepisu</label><input id="recipe-name" name="name" required maxlength="90" value="${esc(old?.name||'')}" placeholder="np. Sos pomidorowy"></div>${recipeSourceMarkup(old?.sourceUrl)}<div class="field"><label for="recipe-description">Krótki opis</label><textarea id="recipe-description" name="description" class="small-area" maxlength="280" placeholder="Kilka słów o tym przepisie…">${esc(old?.description||'')}</textarea></div><div class="field"><label for="recipe-photo-edit">Zdjęcie przepisu</label><input id="recipe-photo-edit" type="file" accept="image/*"><span class="scan-help">Możesz wybrać zdjęcie z galerii albo zrobić nowe aparatem.</span><div class="photo-preview-box" id="recipe-photo-preview">${old?.photo?`<img class="recipe-photo-preview" src="${esc(old.photo)}" alt="Podgląd zdjęcia przepisu">`:'<span class="scan-help">Nie dodano jeszcze zdjęcia.</span>'}</div>${old?.photo?`<label><input type="checkbox" name="removePhoto"> Usuń obecne zdjęcie przy zapisie</label>`:''}</div>${tileStyleFields(old)}<div class="field"><label for="recipe-servings">Podstawowa liczba porcji</label><input id="recipe-servings" name="servings" type="number" min="1" max="100" step="1" value="${initialServings}"><span class="scan-help">Na tej podstawie aplikacja przeliczy ilości składników.</span></div><div class="field"><label><input type="checkbox" name="showPansAndMixer" ${(old?.showPansAndMixer ?? Boolean(old?.id))?'checked':''}> Pokaż foremki i limit robota</label></div><div class="field"><label><input type="checkbox" name="bakerPercentages" ${old?.bakerPercentages?'checked':''}> Procenty piekarskie</label><span class="scan-help">Dla pieczywa: wpisuj nazwy składników od „Mąka” lub „Woda”. Jeśli używasz zaczynu, podaj w etapie masę mąki i wody zawartą w wykorzystanej ilości zaczynu.</span></div><div id="sections">${sections.map((s,i)=>sectionMarkup(s,i,Boolean(old?.bakerPercentages))).join('')}</div><button type="button" class="add-link" id="add-section">＋ Dodaj część / etap</button><div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button><button class="primary-button">${existing?'Zapisz zmiany':'Zapisz przepis'}</button></div></form>`;
     const pendingPhotos = new Map();
     let saving = false;
     showForm(existing?'Edytuj przepis':'Nowy przepis',content,async(fd,form)=>{

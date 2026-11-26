@@ -4,7 +4,9 @@
 zezwala przeglądarce na odczyt albo aplikacja ma skonfigurowaną własną usługę
 importu. Usługa jest przydatna przy stronach takich jak AniaGotuje. Działa z
 publicznymi stronami HTML. Aplikacja szuka danych przepisu lub wyraźnie
-oznaczonych sekcji składników i przygotowania. Jakość importu zależy od źródła.
+oznaczonych sekcji składników i przygotowania. Jakość importu zależy od źródła. Opcja **Pobierz zdjęcia przepisu** dodaje
+do szkicu zdjęcie okładkowe oraz zdjęcia przypisane do kroków, jeśli da się
+je odczytać. Zdjęcia są kompresowane i zapisywane wraz z przepisem lokalnie.
 
 ## Uruchomienie na Render
 
@@ -33,11 +35,11 @@ Pierwszy import po przerwie może wymagać chwili na uruchomienie usługi.
 
 Do uruchomienia poza kontenerem wystarczy Node.js 22 lub nowszy i polecenie
 `node recipe-import-server/server.mjs`. Serwer przyjmuje
-`GET /?url=<zakodowany adres>` lub ten sam parametr pod ścieżką
-`IMPORT_PATH`. Dostawca hostingu może naliczać własne opłaty.
+`GET /?url=<zakodowany adres>`, a dla zdjęć `GET /?image=<zakodowany adres>`.
+Oba parametry działają też pod ścieżką `IMPORT_PATH`.  Dostawca hostingu może naliczać własne opłaty.
 
 Serwer rozwiązuje adres DNS i sprawdza publiczny adres IP przed każdym
 połączeniem, także po przekierowaniu. Ustawione są limity czasu, rozmiaru
 strony i liczby żądań. Konto lub logowanie na stronie źródłowej nie jest
-obsługiwane. Link do przepisu trafia do skonfigurowanej usługi, a przepis
-zapisujesz w Mojej kuchni po sprawdzeniu szkicu.
+obsługiwane. Adres przepisu i adresy pobieranych zdjęć trafiają do usługi.
+Przepis zapisujesz w Mojej kuchni po sprawdzeniu szkicu.
