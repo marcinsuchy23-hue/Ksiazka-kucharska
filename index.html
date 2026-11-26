@@ -2288,6 +2288,39 @@
     return (await fetchRecipePage(endpoint,signal,true,chatGPTImportLimit)).html;
   }
 
+  const chatGPTPhotoPrompt = `Przygotuj recepturę do importu w aplikacji Moja kuchnia na podstawie dołączonych zdjęć.
+
+Jeśli zdjęcia pokazują zapisany przepis, przepisz jego składniki, ilości, jednostki, porcje, kroki, czasy i temperatury. Połącz kolejne zdjęcia w jeden przepis i usuń powtórzenia. Nie zgaduj nieczytelnych ilości ani temperatur. Zapisz w notes, których danych brakuje. Jeśli zdjęcie przedstawia gotowe danie, możesz zaproponować przepis pod warunkiem, że w notes wyraźnie oznaczysz go jako propozycję na podstawie zdjęcia.
+
+Zwróć dokładnie jeden obiekt w poprawnym formacie JSON, bez komentarzy, dodatkowych pól i tekstu przed lub po JSON. Użyj poniższej struktury i zastąp wartości przykładowe rzeczywistymi danymi.
+
+{
+  "version": 1,
+  "name": "Nazwa przepisu",
+  "category": "Dział",
+  "servings": 4,
+  "description": "",
+  "ingredients": [
+    { "name": "Nazwa składnika", "quantity": 100, "unit": "g" }
+  ],
+  "preparation": ["Pierwszy krok przygotowania."],
+  "components": [
+    {
+      "name": "Nazwa półproduktu, np. sos lub marynata",
+      "ingredients": [
+        { "name": "Nazwa składnika półproduktu", "quantity": null, "unit": "" }
+      ],
+      "preparation": ["Krok przygotowania półproduktu."],
+      "notes": ""
+    }
+  ],
+  "notes": ""
+}
+
+Ilość (quantity) to liczba, tekst z ułamkiem lub zakresem, np. "1/2" albo "200–300", lub null przy braku ilości. Jednostkę wpisz osobno w unit, a jeśli jej nie ma, użyj "". Każdy składnik i każdy krok zapisz w osobnej pozycji listy. Rozdziel składniki w ingredients dania i półproduktów, bez dublowania. Jeśli nie ma półproduktów, użyj components: []. Gdy liczba porcji nie jest podana, wpisz 1 i zanotuj to w notes. Gdy brakuje nazwy działu, użyj "Import". Jeśli przygotowanie z zapisanego przepisu jest w całości nieczytelne, wpisz w preparation jeden krok "Przygotowanie nieczytelne na zdjęciu".
+
+Limity: nazwa przepisu do 90 znaków, nazwa działu do 70, nazwa półproduktu do 60, opis do 280, uwagi i każdy krok do 4000. Porcje muszą być liczbą całkowitą od 1 do 100.`;
+
   function importChatGPTRecipe(book,category) {
     showForm('Import receptury z ChatGPT',`<form id="edit-form" class="form">
       <div class="field"><label for="chatgpt-import-method">Sposób importu</label>
@@ -2305,6 +2338,16 @@
       <div class="field" data-chatgpt-method="url" hidden><label for="chatgpt-import-url">Publiczny adres pliku JSON</label>
         <input id="chatgpt-import-url" name="url" type="url" placeholder="https://przyklad.pl/receptura.json" disabled>
         <p class="scan-help">Adres powinien prowadzić bezpośrednio do pliku JSON. Do pobrania może zostać użyta usługa importu.</p>
+      </div>
+      <div><button type="button" class="quiet-button" id="copy-chatgpt-photo-prompt">
+        <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+        </svg>
+        Kopiuj wytyczne do zdjęcia
+      </button></div>
+      <div class="field" id="chatgpt-photo-prompt-fallback" hidden>
+        <label for="chatgpt-photo-prompt-text">Wytyczne do ręcznego skopiowania</label>
+        <textarea id="chatgpt-photo-prompt-text" rows="5" readonly>${esc(chatGPTPhotoPrompt)}</textarea>
       </div>
       <p class="scan-help"><a href="./chatgpt-recipe.schema.json" download>Pobierz schemat JSON</a> ·
         <a href="./chatgpt-recipe.example.json" download>Pobierz przykładową recepturę</a></p>
@@ -2357,6 +2400,21 @@
       }
     });
     const form = document.querySelector('#edit-form');
+    form.querySelector('#copy-chatgpt-photo-prompt').addEventListener('click',async()=>{
+      const fallback = form.querySelector('#chatgpt-photo-prompt-fallback');
+      try {
+        await navigator.clipboard.writeText(chatGPTPhotoPrompt);
+        if (!form.isConnected) return;
+        fallback.hidden = true;
+        toast('Skopiowano wytyczne do ChatGPT.');
+      } catch {
+        if (!form.isConnected) return;
+        fallback.hidden = false;
+        const text = fallback.querySelector('textarea');
+        text.focus();
+        text.select();
+      }
+    });
     form.querySelector('#chatgpt-import-method').addEventListener('change',event=>{
       for (const field of form.querySelectorAll('[data-chatgpt-method]')) {
         const active = field.dataset.chatgptMethod===event.target.value;

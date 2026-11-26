@@ -6,6 +6,12 @@
 2. W Mojej kuchni otwórz dział i wybierz **Import receptury z ChatGPT**. Użyj opcji **Wklej JSON** dla skopiowanego tekstu albo **Plik JSON** dla pliku na urządzeniu.
 3. Sprawdź składniki, kroki i docelowy dział w szkicu. Zapisz przepis.
 
+## Przepis ze zdjęcia
+
+W oknie **Import receptury z ChatGPT** wybierz **Kopiuj wytyczne do zdjęcia**.
+Wklej polecenie w ChatGPT i dołącz zdjęcie. Wygenerowany JSON wklej w aplikacji
+albo wczytaj go jako plik, a potem sprawdź szkic przed zapisem.
+
 ## Polecenie do skopiowania
 
 > Przygotuj poniższy przepis do importu w aplikacji Moja kuchnia. Zwróć jeden plik `przepis.json` zgodny z dołączonym schematem `chatgpt-recipe.schema.json`. Ustaw `version` na 1. Wpisz nazwę, kategorię, liczbę porcji, składniki i kroki przygotowania. Każdy składnik zapisz w osobnym obiekcie z polami `name`, `quantity` i `unit`. Ilości podaj jako liczby, a ułamki lub zakresy możesz zapisać jako tekst. Gdy brak ilości, wpisz `null`. Gdy brak jednostki, wpisz `""`. Zapisz osobne części receptury, np. sos, w `components`, a uwagi w `notes`. Zachowaj podane ilości, czasy i temperatury. Jeśli nie możesz utworzyć pliku, zwróć samą treść JSON.
