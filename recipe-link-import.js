@@ -312,18 +312,34 @@
       return label===recipeTitle+' przepis' || label==='przepis na '+recipeTitle;
     });
     if (methodTitle) {
-      const method = parsed.createElement('template');
+      const instructions = [];
+      const fragment = parsed.createElement('template');
+      function finishStage() {
+        const steps = plainText(fragment.innerHTML).split('\n').map(line=>line.trim()).filter(Boolean);
+        const photos = unique(photosFromHtml(fragment.innerHTML));
+        fragment.content.replaceChildren();
+        if (steps.length) instructions.push({name:'',steps,photos});
+        else if (photos.length && instructions.length) {
+          const previous = instructions.at(-1);
+          previous.photos = unique([...previous.photos,...photos]);
+        } else if (photos.length) instructions.push({name:'',steps,photos});
+      }
+
+      function collect(node) {
+        fragment.content.append(node.cloneNode(true));
+        if (node.nodeType===1 && (node.matches('img') || node.querySelector('img'))) finishStage();
+      }
       for (let node=methodTitle.nextSibling;node;node=node.nextSibling) {
         if (node.nodeType===1 && /^H[2-6]$/.test(node.tagName) && node.tagName<=methodTitle.tagName) break;
-        method.content.append(node.cloneNode(true));
+        collect(node);
       }
       let extension = recipeBody.nextElementSibling;
       if (extension?.matches('[data-read-milestone="recipe_end_ad"]')) extension = extension.nextElementSibling;
       if (extension?.matches('[data-read-milestone="body_ext"]')) {
-        method.content.append(extension.cloneNode(true));
+        for (const node of extension.childNodes) collect(node);
       }
-      const scoped = normalize({name:recipe.name,recipeInstructions:method.innerHTML});
-      if (scoped?.instructions.length) recipe.instructions = scoped.instructions;
+      finishStage();
+      if (instructions.some(section=>section.steps.length)) recipe.instructions = instructions;
     }
     if (!recipe.description) {
       recipe.description = plainText(page.content.querySelector('meta[property="og:description"]')?.getAttribute('content')) ||
