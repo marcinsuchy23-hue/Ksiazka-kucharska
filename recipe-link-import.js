@@ -82,22 +82,22 @@
           photos = [];
         };
         for (const item of asList(items)) {
-          const children = item?.itemListElement || item?.steps;
+          const children = Array.isArray(item) ? item : item?.itemListElement || item?.steps;
           if (children) {
             flush();
             readInstructions(children,plainText(item.name)||sectionName,schemaPhotos(item.image));
             continue;
           }
           const value = typeof item==='string' ? item : item?.text || item?.name;
-          const text = plainText(value);
-          if (!text) continue;
+          const lines = plainText(value).split('\n').map(line=>line.trim()).filter(line=>line && !/^\d+$/u.test(line));
+          if (!lines.length) continue;
           const stepPhotos = [...schemaPhotos(item?.image),...photosFromHtml(value)];
           const name = typeof item==='object' && item?.text ? plainText(item.name) : '';
           if (stepPhotos.length && name && !sectionName) {
             flush();
-            instructions.push({name,steps:text.split('\n'),photos:unique(stepPhotos)});
+            instructions.push({name,steps:lines,photos:unique(stepPhotos)});
           } else {
-            steps.push(...text.split('\n'));
+            steps.push(...lines);
             photos.push(...stepPhotos);
           }
         }
