@@ -1,6 +1,8 @@
 (() => {
   'use strict';
 
+  const maxImportLength = 524288;
+  const recipeLinkPrefix = '#receptura=';
   const recipeKeys = ['version','name','category','servings','ingredients','preparation','description','components','notes'];
   const componentKeys = ['name','ingredients','preparation','notes'];
   const ingredientKeys = ['name','quantity','unit'];
@@ -69,7 +71,7 @@
 
   function parse(text) {
     if (typeof text!=='string') throw new Error('Wklej przepis w formacie JSON.');
-    if (text.length>524288) throw new Error('Tekst jest za długi. Maksymalna długość to 524 288 znaków.');
+    if (text.length>maxImportLength) throw new Error('Tekst jest za długi. Maksymalna długość to 524 288 znaków.');
     const source = text.trim();
     if (!source) throw new Error('Wklej przepis w formacie JSON.');
     const fenced = /^\x60{3}(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n\x60{3}$/iu.exec(source);
@@ -97,5 +99,32 @@
     return {categoryName,draft:{name,servings:recipe.servings,description,remarks,sections}};
   }
 
-  globalThis.chatGPTRecipeImport = {parse};
+  function parseLink(hash) {
+    if (typeof hash!=='string' || !hash.startsWith(recipeLinkPrefix)) return null;
+    const payload = hash.slice(recipeLinkPrefix.length);
+    if (!payload) throw new Error('W linku brakuje danych przepisu.');
+    if (payload.length>maxImportLength) throw new Error('Link jest za długi. Wczytaj recepturę z pliku JSON.');
+
+    let text;
+    try {
+      if (payload.startsWith('b64:')) {
+        const encoded = payload.slice(4);
+        if (!/^[A-Za-z0-9_-]+$/u.test(encoded) || encoded.length%4===1) throw new Error('Invalid base64url');
+        const binary = atob(encoded.replace(/-/g,'+').replace(/_/g,'/'));
+        text = new TextDecoder('utf-8',{fatal:true}).decode(Uint8Array.from(binary,char=>char.charCodeAt(0)));
+      } else {
+        text = decodeURIComponent(payload);
+      }
+    } catch {
+      throw new Error('Link zawiera uszkodzone dane przepisu.');
+    }
+
+    try {
+      return parse(text);
+    } catch (error) {
+      throw new Error(`Nie udało się odczytać receptury z linku. ${error.message}`);
+    }
+  }
+
+  globalThis.chatGPTRecipeImport = {parse,parseLink};
 })();

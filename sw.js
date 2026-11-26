@@ -1,11 +1,11 @@
-const CACHE = 'moja-kuchnia-v107';
+const CACHE = 'moja-kuchnia-v108';
 const OCR_CACHE = 'moja-kuchnia-ocr-v1';
 const path = file => new URL(file,self.registration.scope).href;
 const INDEX = path('index.html');
 const SHELL = new Set([
   INDEX, path('manifest.webmanifest'), path('icon.svg'), path('icon-192.png'),
   path('icon-512.png'), path('apple-touch-icon.png'), path('recipe-link-import.js?v=104'),
-  path('cookbook-storage.js?v=105'), path('chatgpt-recipe-import.js?v=105'),
+  path('cookbook-storage.js?v=105'), path('chatgpt-recipe-import.js?v=108'),
   path('chatgpt-recipe.schema.json'), path('chatgpt-recipe.example.json')
 ]);
 const OCR = new Set([

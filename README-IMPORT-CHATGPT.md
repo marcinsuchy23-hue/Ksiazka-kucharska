@@ -9,8 +9,13 @@
 ## Przepis ze zdjęcia
 
 W oknie **Import receptury z ChatGPT** wybierz **Kopiuj wytyczne do zdjęcia**.
-Wklej polecenie w ChatGPT i dołącz zdjęcie. Wygenerowany JSON wklej w aplikacji
-albo wczytaj go jako plik, a potem sprawdź szkic przed zapisem.
+Wklej polecenie w ChatGPT i dołącz zdjęcie. Odpowiedź ma zawierać jeden link
+**Otwórz recepturę w Mojej kuchni**. Otwórz go, wybierz książkę i dział,
+a potem sprawdź szkic i zapisz. Możesz też skopiować link i wkleić go
+w opcji **Adres URL** w aplikacji zainstalowanej na telefonie.
+
+Dane receptury są zapisane po znaku `#` w linku. Przeglądarka odczytuje je
+lokalnie. Każda osoba, której udostępnisz link, może odczytać recepturę.
 
 ## Polecenie do skopiowania
 

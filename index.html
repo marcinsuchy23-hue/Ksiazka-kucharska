@@ -205,7 +205,7 @@
 <div id="overlay-root"></div><div id="toast-root"></div>
 <script src="./recipe-link-import.js?v=104"></script>
 <script src="./cookbook-storage.js?v=105"></script>
-<script src="./chatgpt-recipe-import.js?v=105"></script>
+<script src="./chatgpt-recipe-import.js?v=108"></script>
 <script>
 (async()=>{
   const KEY='domowa-kuchnia-v1';
@@ -1697,6 +1697,7 @@
     const root = document.querySelector('#overlay-root');
     if (root.contains(document.activeElement)) document.activeElement.blur();
     root.innerHTML = '';
+    if (location.hash.startsWith('#receptura=')) queueMicrotask(openChatGPTRecipeLink);
     if (formPageScroll === null) return;
     window.visualViewport?.removeEventListener('resize', fitFormToViewport);
     window.visualViewport?.removeEventListener('scroll', fitFormToViewport);
@@ -2292,7 +2293,7 @@
 
 Jeśli zdjęcia pokazują zapisany przepis, przepisz jego składniki, ilości, jednostki, porcje, kroki, czasy i temperatury. Połącz kolejne zdjęcia w jeden przepis i usuń powtórzenia. Nie zgaduj nieczytelnych ilości ani temperatur. Zapisz w notes, których danych brakuje. Jeśli zdjęcie przedstawia gotowe danie, możesz zaproponować przepis pod warunkiem, że w notes wyraźnie oznaczysz go jako propozycję na podstawie zdjęcia.
 
-Zwróć dokładnie jeden obiekt w poprawnym formacie JSON, bez komentarzy, dodatkowych pól i tekstu przed lub po JSON. Użyj poniższej struktury i zastąp wartości przykładowe rzeczywistymi danymi.
+Zbuduj dokładnie jeden poprawny obiekt JSON, bez dodatkowych pól. Użyj poniższej struktury i zastąp wartości przykładowe rzeczywistymi danymi. Obiekt posłuży do stworzenia linku. Nie pokazuj go w rozmowie.
 
 {
   "version": 1,
@@ -2319,7 +2320,30 @@ Zwróć dokładnie jeden obiekt w poprawnym formacie JSON, bez komentarzy, dodat
 
 Ilość (quantity) to liczba, tekst z ułamkiem lub zakresem, np. "1/2" albo "200–300", lub null przy braku ilości. Jednostkę wpisz osobno w unit, a jeśli jej nie ma, użyj "". Każdy składnik i każdy krok zapisz w osobnej pozycji listy. Rozdziel składniki w ingredients dania i półproduktów, bez dublowania. Jeśli nie ma półproduktów, użyj components: []. Gdy liczba porcji nie jest podana, wpisz 1 i zanotuj to w notes. Gdy brakuje nazwy działu, użyj "Import". Jeśli przygotowanie z zapisanego przepisu jest w całości nieczytelne, wpisz w preparation jeden krok "Przygotowanie nieczytelne na zdjęciu".
 
-Limity: nazwa przepisu do 90 znaków, nazwa działu do 70, nazwa półproduktu do 60, opis do 280, uwagi i każdy krok do 4000. Porcje muszą być liczbą całkowitą od 1 do 100.`;
+Limity: nazwa przepisu do 90 znaków, nazwa działu do 70, nazwa półproduktu do 60, opis do 280, uwagi i każdy krok do 4000. Porcje muszą być liczbą całkowitą od 1 do 100.
+
+Użyj narzędzia do wykonania kodu, żeby zamienić cały obiekt na zwarty JSON w UTF-8 i zakodować go jako Base64 URL-safe bez znaków = na końcu. W Pythonie użyj base64.urlsafe_b64encode(json.dumps(receptura, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).decode("ascii").rstrip("=").
+W odpowiedzi podaj wyłącznie jeden klikalny link w Markdown w takiej postaci, podstawiając zakodowane dane zamiast KOD:
+[Otwórz recepturę w Mojej kuchni](https://marcinsuchy23-hue.github.io/Ksiazka-kucharska/#receptura=b64:KOD)
+Nie wypisuj składników, kroków ani kodu w osobnych blokach.`;
+
+  function openChatGPTRecipeLink() {
+    if (!location.hash.startsWith('#receptura=') || document.querySelector('#overlay-root .dialog')) return;
+    const hash = location.hash;
+    const cleanUrl = new URL(location.href);
+    cleanUrl.hash = '';
+    history.replaceState(history.state,'',cleanUrl);
+    try {
+      const imported = globalThis.chatGPTRecipeImport.parseLink(hash);
+      if (!imported) return;
+      const book = bookBy(route.book) || state.books[0] || {name:'Moja książka',categories:[]};
+      imported.draft.chatGPTCategory = imported.categoryName;
+      imported.draft.chatGPTLink = true;
+      recipeForm(book,catBy(book,route.category),imported.draft,true);
+    } catch (error) {
+      toast(error.message||'Nie udało się otworzyć receptury z linku.');
+    }
+  }
 
   function importChatGPTRecipe(book,category) {
     showForm('Import receptury z ChatGPT',`<form id="edit-form" class="form">
@@ -2335,9 +2359,9 @@ Limity: nazwa przepisu do 90 znaków, nazwa działu do 70, nazwa półproduktu d
       <div class="field" data-chatgpt-method="file" hidden><label for="chatgpt-import-file">Wybierz plik JSON</label>
         <input id="chatgpt-import-file" name="file" type="file" accept=".json,application/json" disabled>
       </div>
-      <div class="field" data-chatgpt-method="url" hidden><label for="chatgpt-import-url">Publiczny adres pliku JSON</label>
+      <div class="field" data-chatgpt-method="url" hidden><label for="chatgpt-import-url">Adres pliku JSON lub receptury</label>
         <input id="chatgpt-import-url" name="url" type="url" placeholder="https://przyklad.pl/receptura.json" disabled>
-        <p class="scan-help">Adres powinien prowadzić bezpośrednio do pliku JSON. Do pobrania może zostać użyta usługa importu.</p>
+        <p class="scan-help">Wklej link do Mojej kuchni wygenerowany przez ChatGPT albo publiczny adres pliku JSON.</p>
       </div>
       <div><button type="button" class="quiet-button" id="copy-chatgpt-photo-prompt">
         <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
@@ -2370,7 +2394,15 @@ Limity: nazwa przepisu do 90 znaków, nazwa działu do 70, nazwa półproduktu d
           text = await file.text();
         } else if (method==='url') {
           source = recipeWebUrl(String(data.get('url')||'').trim());
-          if (!source) return status('Wklej publiczny adres pliku JSON zaczynający się od https:// lub http://.');
+          if (!source) return status('Wklej adres receptury lub pliku JSON zaczynający się od https:// lub http://.');
+          if (source.hash.startsWith('#receptura=') &&
+              (source.origin===location.origin ||
+                (source.origin==='https://marcinsuchy23-hue.github.io' && source.pathname==='/Ksiazka-kucharska/'))) {
+            const {categoryName,draft} = globalThis.chatGPTRecipeImport.parseLink(source.hash);
+            draft.chatGPTCategory = categoryName;
+            recipeForm(book,category,draft,true);
+            return;
+          }
           source.hash = '';
           try {
             text = await fetchChatGPTRecipe(source,controller.signal);
@@ -2696,33 +2728,51 @@ Limity: nazwa przepisu do 90 znaków, nazwa działu do 70, nazwa półproduktu d
     });
   }
 
-  function chatGPTDestinationMarkup(book,categoryName) {
+  function chatGPTCategoryOptions(book,categoryName) {
     const matching = book.categories.find(item=>item.name.localeCompare(categoryName,'pl',{sensitivity:'accent'})===0);
-    return `<div class="field"><label for="chatgpt-destination">Dział w książce „${esc(book.name)}”</label>
-      <select name="chatGPTDestination" id="chatgpt-destination">
-        ${book.categories.map(item=>`<option value="category:${esc(item.id)}" ${item===matching?'selected':''}>${esc(item.name)}</option>`).join('')}
-        <option value="new" ${matching?'':'selected'}>Utwórz dział</option>
+    return `${book.categories.map(item=>`<option value="category:${esc(item.id)}" ${item===matching?'selected':''}>${esc(item.name)}</option>`).join('')}
+      <option value="new" ${matching?'':'selected'}>Utwórz dział</option>`;
+  }
+
+  function chatGPTDestinationMarkup(book,categoryName,fromLink) {
+    const initialNewCategory = !book.categories.some(item=>item.name.localeCompare(categoryName,'pl',{sensitivity:'accent'})===0);
+    return `${fromLink?`<div class="field"><label for="chatgpt-book">Książka kucharska</label>
+      <select name="chatGPTBook" id="chatgpt-book">
+        ${state.books.map(item=>`<option value="book:${esc(item.id)}" ${item===book?'selected':''}>${esc(item.name)}</option>`).join('')}
+        <option value="new" ${book.id?'':'selected'}>Utwórz książkę</option>
       </select></div>
-      <div class="field" id="chatgpt-new-category-field" ${matching?'hidden':''}>
+      <div class="field" id="chatgpt-new-book-field" ${book.id?'hidden':''}>
+        <label for="chatgpt-book-name">Nazwa nowej książki</label>
+        <input name="chatGPTBookName" id="chatgpt-book-name" maxlength="70" value="Moja książka" ${book.id?'disabled':'required'}>
+      </div>`:''}
+      <div class="field"><label for="chatgpt-destination">Dział</label>
+        <select name="chatGPTDestination" id="chatgpt-destination">${chatGPTCategoryOptions(book,categoryName)}</select></div>
+      <div class="field" id="chatgpt-new-category-field" ${initialNewCategory?'':'hidden'}>
         <label for="chatgpt-category-name">Nazwa nowego działu</label>
-        <input name="chatGPTCategoryName" id="chatgpt-category-name" maxlength="70" value="${esc(categoryName)}" ${matching?'disabled':'required'}>
+        <input name="chatGPTCategoryName" id="chatgpt-category-name" maxlength="70" value="${esc(categoryName)}" ${initialNewCategory?'required':'disabled'}>
       </div>`;
   }
 
   function recipeForm(book,cat,old,draft=false){const existing=Boolean(old&&!draft);const initialServings=old?(Number(old.servings)||4):1;const sections=old?.sections?.length?old.sections:[{name:'',ingredients:[{amount:'',name:''}],instructions:''}];
     const chatGPTCategory = draft&&old?.chatGPTCategory;
-    const content=`<form id="edit-form" class="form">${draft&&old?.importNotice?`<p class="scan-help" role="status">${esc(old.importNotice)}</p>`:''}<div class="field"><label for="recipe-name">Nazwa przepisu</label><input id="recipe-name" name="name" required maxlength="90" value="${esc(old?.name||'')}" placeholder="np. Sos pomidorowy"></div>${recipeSourceMarkup(old?.sourceUrl)}${chatGPTCategory?chatGPTDestinationMarkup(book,chatGPTCategory):''}<div class="field"><label for="recipe-description">Krótki opis</label><textarea id="recipe-description" name="description" class="small-area" maxlength="280" placeholder="Kilka słów o tym przepisie…">${esc(old?.description||'')}</textarea></div><div class="field"><label for="recipe-photo-edit">Zdjęcie przepisu</label><input id="recipe-photo-edit" type="file" accept="image/*"><span class="scan-help">Możesz wybrać zdjęcie z galerii albo zrobić nowe aparatem.</span><div class="photo-preview-box" id="recipe-photo-preview">${old?.photo?`<img class="recipe-photo-preview" src="${esc(old.photo)}" alt="Podgląd zdjęcia przepisu">`:'<span class="scan-help">Nie dodano jeszcze zdjęcia.</span>'}</div>${old?.photo?`<label><input type="checkbox" name="removePhoto"> Usuń obecne zdjęcie przy zapisie</label>`:''}</div>${tileStyleFields(old)}<div class="field"><label for="recipe-servings">Podstawowa liczba porcji</label><input id="recipe-servings" name="servings" type="number" min="1" max="100" step="1" value="${initialServings}"><span class="scan-help">Na tej podstawie aplikacja przeliczy ilości składników.</span></div><div class="field"><label><input type="checkbox" name="showPansAndMixer" ${(old?.showPansAndMixer ?? Boolean(old?.id))?'checked':''}> Pokaż foremki i limit robota</label></div><div class="field"><label><input type="checkbox" name="bakerPercentages" ${old?.bakerPercentages?'checked':''}> Procenty piekarskie</label><span class="scan-help">Dla pieczywa: wpisuj nazwy składników od „Mąka” lub „Woda”. Jeśli używasz zaczynu, podaj w etapie masę mąki i wody zawartą w wykorzystanej ilości zaczynu.</span></div><div id="sections">${sections.map((s,i)=>sectionMarkup(s,i,Boolean(old?.bakerPercentages))).join('')}</div><button type="button" class="add-link" id="add-section">＋ Dodaj część / etap</button><div class="field"><label for="recipe-remarks">Uwagi do przepisu</label><textarea id="recipe-remarks" name="remarks" class="small-area" maxlength="4000">${esc(old?.remarks||'')}</textarea></div><div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button><button class="primary-button">${existing?'Zapisz zmiany':'Zapisz przepis'}</button></div></form>`;
+    const content=`<form id="edit-form" class="form">${draft&&old?.importNotice?`<p class="scan-help" role="status">${esc(old.importNotice)}</p>`:''}<div class="field"><label for="recipe-name">Nazwa przepisu</label><input id="recipe-name" name="name" required maxlength="90" value="${esc(old?.name||'')}" placeholder="np. Sos pomidorowy"></div>${recipeSourceMarkup(old?.sourceUrl)}${chatGPTCategory?chatGPTDestinationMarkup(book,chatGPTCategory,old?.chatGPTLink):''}<div class="field"><label for="recipe-description">Krótki opis</label><textarea id="recipe-description" name="description" class="small-area" maxlength="280" placeholder="Kilka słów o tym przepisie…">${esc(old?.description||'')}</textarea></div><div class="field"><label for="recipe-photo-edit">Zdjęcie przepisu</label><input id="recipe-photo-edit" type="file" accept="image/*"><span class="scan-help">Możesz wybrać zdjęcie z galerii albo zrobić nowe aparatem.</span><div class="photo-preview-box" id="recipe-photo-preview">${old?.photo?`<img class="recipe-photo-preview" src="${esc(old.photo)}" alt="Podgląd zdjęcia przepisu">`:'<span class="scan-help">Nie dodano jeszcze zdjęcia.</span>'}</div>${old?.photo?`<label><input type="checkbox" name="removePhoto"> Usuń obecne zdjęcie przy zapisie</label>`:''}</div>${tileStyleFields(old)}<div class="field"><label for="recipe-servings">Podstawowa liczba porcji</label><input id="recipe-servings" name="servings" type="number" min="1" max="100" step="1" value="${initialServings}"><span class="scan-help">Na tej podstawie aplikacja przeliczy ilości składników.</span></div><div class="field"><label><input type="checkbox" name="showPansAndMixer" ${(old?.showPansAndMixer ?? Boolean(old?.id))?'checked':''}> Pokaż foremki i limit robota</label></div><div class="field"><label><input type="checkbox" name="bakerPercentages" ${old?.bakerPercentages?'checked':''}> Procenty piekarskie</label><span class="scan-help">Dla pieczywa: wpisuj nazwy składników od „Mąka” lub „Woda”. Jeśli używasz zaczynu, podaj w etapie masę mąki i wody zawartą w wykorzystanej ilości zaczynu.</span></div><div id="sections">${sections.map((s,i)=>sectionMarkup(s,i,Boolean(old?.bakerPercentages))).join('')}</div><button type="button" class="add-link" id="add-section">＋ Dodaj część / etap</button><div class="field"><label for="recipe-remarks">Uwagi do przepisu</label><textarea id="recipe-remarks" name="remarks" class="small-area" maxlength="4000">${esc(old?.remarks||'')}</textarea></div><div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button><button class="primary-button">${existing?'Zapisz zmiany':'Zapisz przepis'}</button></div></form>`;
     const pendingPhotos = new Map();
     let saving = false;
     showForm(chatGPTCategory?'Sprawdź recepturę z ChatGPT':existing?'Edytuj przepis':'Nowy przepis',content,async(fd,form)=>{
       const name = String(fd.get('name')).trim();
       if (!name || saving) return;
+      const bookChoice = fd.get('chatGPTBook');
+      const newBookName = bookChoice==='new' ? String(fd.get('chatGPTBookName')||'').trim() : '';
+      if (bookChoice==='new' && !newBookName) return toast('Wpisz nazwę nowej książki.');
+      const targetBook = bookChoice==='new' ? {id:id(),name:newBookName,categories:[]}
+        : bookChoice ? bookBy(bookChoice.slice(5)) : book;
+      if (!targetBook) return toast('Wybierz książkę kucharską.');
       const destination = fd.get('chatGPTDestination');
       const newCategoryName = destination==='new' ? String(fd.get('chatGPTCategoryName')||'').trim() : '';
       if (destination==='new' && !newCategoryName) return toast('Wpisz nazwę nowego działu.');
-      const target = destination==='new' ? (book.categories.find(item=>item.name.localeCompare(newCategoryName,'pl',{sensitivity:'accent'})===0) ||
+      const target = destination==='new' ? (targetBook.categories.find(item=>item.name.localeCompare(newCategoryName,'pl',{sensitivity:'accent'})===0) ||
         {id:id(),name:newCategoryName,recipes:[]})
-        : destination ? catBy(book,destination.slice(9)) : cat;
+        : destination ? catBy(targetBook,destination.slice(9)) : cat;
       if (!target) return toast('Wybierz dział, w którym chcesz zapisać przepis.');
       const sections = [...form.querySelectorAll('[data-section]')].map((el,index)=>({
         name:el.querySelector('[data-s-name]').value.trim(),
@@ -2764,18 +2814,21 @@ Limity: nazwa przepisu do 90 znaków, nazwa działu do 70, nazwa półproduktu d
           showPansAndMixer:fd.get('showPansAndMixer')==='on',bakerPercentages:fd.get('bakerPercentages')==='on',
           servings:Math.min(100,Math.max(1,Number(fd.get('servings'))||initialServings)),sections
         };
-        let previous, previousCategories;
+        let previous, previousCategories, previousBooks;
         try {
           await cookbookStorage.photos.prepare(state,recipe);
           if (!form.isConnected) return;
           previous = target.recipes;
-          previousCategories = book.categories;
+          previousCategories = targetBook.categories;
+          previousBooks = state.books;
           target.recipes = existing ? previous.map(item=>item===old ? {...old,...recipe} : item) : [...previous,recipe];
-          if (!previousCategories.includes(target)) book.categories = [...previousCategories,target];
+          if (!previousCategories.includes(target)) targetBook.categories = [...previousCategories,target];
+          if (!previousBooks.includes(targetBook)) state.books = [...previousBooks,targetBook];
           save();
         } catch (error) {
           if (previous) target.recipes = previous;
-          if (previousCategories) book.categories = previousCategories;
+          if (previousCategories) targetBook.categories = previousCategories;
+          if (previousBooks) state.books = previousBooks;
           const conflict = ['CookbookConflictError','CookbookRecoveryError'].includes(error.name);
           toast(conflict ? error.message : error.name==='QuotaExceededError'
             ? 'Brakuje wolnego miejsca w pamięci przeglądarki. Zapisz kopię książki przed zwalnianiem miejsca.'
@@ -2783,7 +2836,7 @@ Limity: nazwa przepisu do 90 znaków, nazwa działu do 70, nazwa półproduktu d
           return;
         }
         closeForm();
-        if (draft&&(old?.id||recipe.sourceUrl||chatGPTCategory)) navigate(`recipe:${book.id}:${target.id}:${recipe.id}`);
+        if (draft&&(old?.id||recipe.sourceUrl||chatGPTCategory)) navigate(`recipe:${targetBook.id}:${target.id}:${recipe.id}`);
         else render();
         toast(existing?'Przepis zaktualizowany':'Przepis zapisany');
       } finally {
@@ -2792,13 +2845,22 @@ Limity: nazwa przepisu do 90 znaków, nazwa działu do 70, nazwa półproduktu d
       }
     });
     const categoryPicker = document.querySelector('#chatgpt-destination');
-    categoryPicker?.addEventListener('change',()=>{
-      const create = categoryPicker.value==='new';
-      const field = document.querySelector('#chatgpt-new-category-field');
+    const bookPicker = document.querySelector('#chatgpt-book');
+    function toggleNewDestination(field,create) {
       const input = field.querySelector('input');
       field.hidden = !create;
       input.required = create;
       input.disabled = !create;
+    }
+    categoryPicker?.addEventListener('change',()=>{
+      toggleNewDestination(document.querySelector('#chatgpt-new-category-field'),categoryPicker.value==='new');
+    });
+    bookPicker?.addEventListener('change',()=>{
+      const create = bookPicker.value==='new';
+      const selectedBook = create ? {categories:[]} : bookBy(bookPicker.value.slice(5));
+      toggleNewDestination(document.querySelector('#chatgpt-new-book-field'),create);
+      categoryPicker.innerHTML = chatGPTCategoryOptions(selectedBook,chatGPTCategory);
+      toggleNewDestination(document.querySelector('#chatgpt-new-category-field'),categoryPicker.value==='new');
     });
     let coverPreviewUrl;
     formCleanup = ()=>{
@@ -3424,6 +3486,12 @@ Limity: nazwa przepisu do 90 znaków, nazwa działu do 70, nazwa półproduktu d
   if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(()=>{});
   setupBackNavigation();
   render();
+  window.addEventListener('hashchange',()=>{
+    if (location.hash.startsWith('#receptura=') && document.querySelector('#overlay-root .dialog')) {
+      toast('Zakończ bieżącą edycję, aby otworzyć nową recepturę.');
+    } else openChatGPTRecipeLink();
+  });
+  openChatGPTRecipeLink();
 })();
 </script>
 </body>
