@@ -2345,10 +2345,6 @@ Limity: nazwa przepisu do 90 znaków, nazwa działu do 70, nazwa półproduktu d
         </svg>
         Kopiuj wytyczne do zdjęcia
       </button></div>
-      <div class="field" id="chatgpt-photo-prompt-fallback" hidden>
-        <label for="chatgpt-photo-prompt-text">Wytyczne do ręcznego skopiowania</label>
-        <textarea id="chatgpt-photo-prompt-text" rows="5" readonly>${esc(chatGPTPhotoPrompt)}</textarea>
-      </div>
       <p class="scan-help"><a href="./chatgpt-recipe.schema.json" download>Pobierz schemat JSON</a> ·
         <a href="./chatgpt-recipe.example.json" download>Pobierz przykładową recepturę</a></p>
       <p class="scan-help" role="status" id="chatgpt-import-status" hidden></p>
@@ -2401,18 +2397,11 @@ Limity: nazwa przepisu do 90 znaków, nazwa działu do 70, nazwa półproduktu d
     });
     const form = document.querySelector('#edit-form');
     form.querySelector('#copy-chatgpt-photo-prompt').addEventListener('click',async()=>{
-      const fallback = form.querySelector('#chatgpt-photo-prompt-fallback');
       try {
         await navigator.clipboard.writeText(chatGPTPhotoPrompt);
-        if (!form.isConnected) return;
-        fallback.hidden = true;
-        toast('Skopiowano wytyczne do ChatGPT.');
+        if (form.isConnected) toast('Skopiowano wytyczne do ChatGPT.');
       } catch {
-        if (!form.isConnected) return;
-        fallback.hidden = false;
-        const text = fallback.querySelector('textarea');
-        text.focus();
-        text.select();
+        if (form.isConnected) toast('Nie udało się skopiować wytycznych.');
       }
     });
     form.querySelector('#chatgpt-import-method').addEventListener('change',event=>{
