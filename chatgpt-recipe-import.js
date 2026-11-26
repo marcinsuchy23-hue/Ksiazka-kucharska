@@ -57,8 +57,9 @@
   }
 
   function readPreparation(value,label) {
-    return readList(value,`Lista kroków (${label})`,100).map((step,index)=>
-      readText(step,`Pole kroku ${index+1} (${label})`,4000));
+    const steps = readList(value,`Lista kroków (${label})`,100);
+    if (!steps.length) throw new Error(`Lista „preparation” (${label}) musi zawierać przynajmniej jeden krok.`);
+    return steps.map((step,index)=>readText(step,`Pole kroku ${index+1} (${label})`,4000));
   }
 
   function readComponent(item,index) {
@@ -68,7 +69,6 @@
     const ingredients = readIngredients(item.ingredients,label);
     const steps = readPreparation(item.preparation,label);
     const notes = readText(item.notes,`Pole „notes” w części ${label}`,4000,{allowEmpty:true,optional:true});
-    if (!ingredients.length && !steps.length) throw new Error(`${label} musi zawierać składnik lub krok przygotowania.`);
     const instructions = [...steps,...(notes ? [`Uwagi: ${notes}`] : [])].join('\n\n');
     return {name,ingredients,instructions};
   }
@@ -96,8 +96,7 @@
     const description = readText(recipe.description,'Pole „description”',280,{allowEmpty:true,optional:true});
     const remarks = readText(recipe.notes,'Pole „notes”',4000,{allowEmpty:true,optional:true});
     const ingredients = readIngredients(recipe.ingredients,'Przygotowanie');
-    const steps = readPreparation(recipe.preparation,'Przygotowanie');
-    if (!steps.length) throw new Error('Lista „preparation” musi zawierać przynajmniej jeden krok.');
+    const steps = readPreparation(recipe.preparation,'Danie główne');
     const sections = recipe.components===undefined ? [] : readList(recipe.components,'Lista półproduktów',20).map(readComponent);
     sections.push({name:'Przygotowanie',ingredients,instructions:steps.join('\n\n')});
     return {categoryName,draft:{name,servings:recipe.servings,description,remarks,sections}};

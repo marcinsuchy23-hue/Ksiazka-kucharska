@@ -207,7 +207,7 @@
 <div id="overlay-root"></div><div id="toast-root"></div>
 <script src="./recipe-link-import.js?v=104"></script>
 <script src="./cookbook-storage.js?v=105"></script>
-<script src="./chatgpt-recipe-import.js?v=110"></script>
+<script src="./chatgpt-recipe-import.js?v=113"></script>
 <script>
 (async()=>{
   const KEY='domowa-kuchnia-v1';
@@ -2286,14 +2286,16 @@ Dane receptury przechowuj jako jeden obiekt w poniższym formacie JSON. Zastąp 
       "ingredients": [
         { "name": "Nazwa składnika półproduktu", "quantity": null, "unit": "" }
       ],
-      "preparation": [],
+      "preparation": ["Brak instrukcji przygotowania na zdjęciu"],
       "notes": ""
     }
   ],
   "notes": ""
 }
 
-Ilość (quantity) to liczba, tekst z ułamkiem lub zakresem, np. "1/2" albo "200–300", lub null przy braku ilości. Jednostkę wpisz osobno w unit, a jeśli jej nie ma, użyj "". Każdy składnik i każdy krok zapisz w osobnej pozycji listy. Rozdziel składniki w ingredients dania i półproduktów, bez dublowania. Jeśli nie ma półproduktów, użyj components: []. Gdy liczba porcji nie jest podana, wpisz 1 i zanotuj to w notes. Gdy brakuje nazwy działu, użyj "Import". Jeśli przygotowanie z zapisanego przepisu jest w całości nieczytelne, wpisz w preparation jeden krok "Przygotowanie nieczytelne na zdjęciu".
+Ilość (quantity) to liczba, tekst z ułamkiem lub zakresem, np. "1/2" albo "200–300", lub null przy braku ilości. Jednostkę wpisz osobno w unit, a jeśli jej nie ma, użyj "". Każdy składnik i każdy krok zapisz w osobnej pozycji listy. Rozdziel składniki w ingredients dania i półproduktów, bez dublowania. Jeśli nie ma półproduktów, użyj components: []. Gdy liczba porcji nie jest podana, wpisz 1 i zanotuj to w notes. Gdy brakuje nazwy działu, użyj "Import".
+
+Lista preparation dania głównego i każdego półproduktu musi mieć przynajmniej jeden krok. Jeśli zdjęcie zapisanego przepisu nie zawiera instrukcji dla danej części, wpisz w jej preparation jeden krok "Brak instrukcji przygotowania na zdjęciu". Jeśli instrukcja jest na zdjęciu, ale nie da się odczytać żadnego kroku, wpisz "Przygotowanie nieczytelne na zdjęciu". Nigdy nie zwracaj pustej listy preparation.
 
 Limity: nazwa przepisu do 90 znaków, nazwa działu do 70, nazwa półproduktu do 60, opis do 280, uwagi i każdy krok do 4000. Porcje muszą być liczbą całkowitą od 1 do 100.
 
