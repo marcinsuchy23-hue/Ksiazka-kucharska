@@ -93,7 +93,7 @@
           if (!lines.length) continue;
           const stepPhotos = [...schemaPhotos(item?.image),...photosFromHtml(value)];
           const name = typeof item==='object' && item?.text ? plainText(item.name) : '';
-          if (stepPhotos.length && name && !sectionName) {
+          if (name && !sectionName) {
             flush();
             instructions.push({name,steps:lines,photos:unique(stepPhotos)});
           } else {
@@ -235,8 +235,15 @@
     function readVisibleRecipe(scope, assumeMethod = false) {
       const title = scope===page.content ? pageTitle : recipeHeadings(scope);
       const heading = title.length===1 ? title[0] : !title.length&&pageTitle.length===1 ? pageTitle[0] : null;
-      if (!heading) return null;
-      const titleText = normalizedText(heading.textContent);
+      const metaTitle = page.content.querySelector('meta[property="og:title"]')?.getAttribute('content');
+      const fallback = !heading && !pageTitle.length && metaTitle
+        ? [...scope.querySelectorAll('h2')].filter(visible).find(node=>{
+          const label = normalizedText(node.textContent);
+          return label && normalizedText(metaTitle).includes(label);
+        }) : null;
+      const titleNode = heading || fallback;
+      if (!titleNode) return null;
+      const titleText = normalizedText(titleNode.textContent);
       const matchesMetadata = [jsonRecipe,microdataRecipe].some(recipe=>recipe && normalizedText(recipe.name)===titleText);
       const ingredients = [], steps = [];
       let section = assumeMethod ? 'method' : '', level = 1, stepName = '', text = [], photos = [];
@@ -262,8 +269,9 @@
               (section==='ingredients' && ingredients.length && /^przepis na\s/iu.test(label))) {
             section = 'method';
             level = depth;
-          } else if (section==='method' && stepHeading.test(label)) {
+          } else if ((section==='method' || (section==='ingredients' && ingredients.length)) && stepHeading.test(label)) {
             flush();
+            section = 'method';
             stepName = label;
           } else if (!assumeMethod && depth<=level) {
             if (section==='method' && (steps.length || text.length)) break;
@@ -290,7 +298,7 @@
       }
       flush();
       return normalize({
-        name:heading.innerHTML,
+        name:titleNode.innerHTML,
         description:valueOf(scope.querySelector('[itemprop~="description"]')),
         recipeYield:valueOf(scope.querySelector('[itemprop~="recipeYield"],.field-name-field-ilosc-porcji')),
         recipeIngredient:ingredients,
