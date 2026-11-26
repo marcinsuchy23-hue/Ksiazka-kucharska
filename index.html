@@ -2264,13 +2264,13 @@
 
 Jeśli zdjęcia pokazują zapisany przepis, przepisz jego składniki, ilości, jednostki, porcje, kroki, czasy i temperatury. Połącz kolejne zdjęcia w jeden przepis i usuń powtórzenia. Nie zgaduj nieczytelnych ilości ani temperatur. Zapisz w notes, których danych brakuje. Jeśli zdjęcie przedstawia gotowe danie, możesz zaproponować przepis pod warunkiem, że w notes wyraźnie oznaczysz go jako propozycję na podstawie zdjęcia.
 
-Przygotuj dokładnie jeden obiekt w formacie JSON, bez komentarzy i dodatkowych pól. Użyj poniższej struktury i zastąp wartości przykładowe rzeczywistymi danymi.
+Dane receptury przechowuj jako jeden obiekt w poniższym formacie JSON. Zastąp wartości przykładowe danymi receptury i nie dodawaj pól. Traktuj strukturę jako format wymiany z Moją kuchnią. Nie pokazuj jej w podglądzie.
 
 {
   "version": 1,
   "name": "Nazwa przepisu",
   "category": "Dział",
-  "servings": 4,
+  "servings": 1,
   "description": "",
   "ingredients": [
     { "name": "Nazwa składnika", "quantity": 100, "unit": "g" }
@@ -2282,7 +2282,7 @@ Przygotuj dokładnie jeden obiekt w formacie JSON, bez komentarzy i dodatkowych 
       "ingredients": [
         { "name": "Nazwa składnika półproduktu", "quantity": null, "unit": "" }
       ],
-      "preparation": ["Krok przygotowania półproduktu."],
+      "preparation": [],
       "notes": ""
     }
   ],
@@ -2293,7 +2293,15 @@ Ilość (quantity) to liczba, tekst z ułamkiem lub zakresem, np. "1/2" albo "20
 
 Limity: nazwa przepisu do 90 znaków, nazwa działu do 70, nazwa półproduktu do 60, opis do 280, uwagi i każdy krok do 4000. Porcje muszą być liczbą całkowitą od 1 do 100.
 
-W odpowiedzi pokaż wyłącznie gotowy JSON w jednym bloku kodu oznaczonym jako json, tak żebym mógł użyć przycisku Kopiuj. Nie dodawaj opisu poza blokiem, plików ani linków.`;
+Jeśli ten czat obsługuje działający, interaktywny podgląd:
+1. Pokaż czytelny podgląd nazwy, działu, porcji, opisu, składników z ilością i jednostką, kroków, półproduktów i uwag. Pokaż osobno składniki dania i każdego półproduktu.
+2. Dodaj działającą ikonę ołówka „Edytuj recepturę”. Umożliw zmianę wszystkich pól oraz dodawanie, usuwanie i zmianę składników, kroków i półproduktów. Pokaż „Zatwierdź recepturę” w pierwszym podglądzie i przy edycji.
+3. Dopiero po poprawnej walidacji i kliknięciu „Zatwierdź recepturę” zakończ edycję i pokaż „Kopiuj recepturę”. Po kliknięciu tego przycisku skopiuj do schowka wyłącznie JSON z aktualnego, zatwierdzonego obiektu, np. przez JSON.stringify. Nie pokazuj kodu w podglądzie.
+4. Po ponownym wejściu w edycję unieważnij zatwierdzenie i ukryj kopiowanie do czasu kolejnego zatwierdzenia. Nie kopiuj wcześniejszej wersji.
+
+Jeśli czat nie obsługuje działającego formularza albo kopiowania z podglądu, nie pokazuj niedziałających przycisków. Pokaż czytelny podgląd w rozmowie i przyjmij poprawki. Po zmianie pokaż zaktualizowany podgląd i ponownie poczekaj na wiadomość „Zatwierdzam”. Dopiero po zatwierdzeniu i na osobną prośbę „Kopiuj recepturę” udostępnij sam aktualny JSON do skopiowania. Jeśli kopiowanie bez pokazania kodu jest niedostępne, użyj jednego osobnego bloku kodu json z przyciskiem Kopiuj.
+
+Nie twórz plików do pobrania, linków importujących ani przekierowań.`;
 
   function importChatGPTRecipe(book,category) {
     function preview(text,form) {
@@ -2313,7 +2321,7 @@ W odpowiedzi pokaż wyłącznie gotowy JSON w jednym bloku kodu oznaczonym jako 
     }
 
     showForm('Import receptury z ChatGPT',`<form id="edit-form" class="form">
-      <p class="scan-help">Skopiuj JSON receptury w ChatGPT, a następnie zaimportuj go ze schowka.</p>
+      <p class="scan-help">Zatwierdź i skopiuj recepturę w ChatGPT, a następnie zaimportuj ją ze schowka.</p>
       <div><button type="button" class="quiet-button" id="copy-chatgpt-photo-prompt">
         <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
           <rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
@@ -2338,6 +2346,20 @@ W odpowiedzi pokaż wyłącznie gotowy JSON w jednym bloku kodu oznaczonym jako 
     </form>`,(data,form)=>preview(String(data.get('text')||''),form));
 
     const form = document.querySelector('#edit-form');
+    const manualText = form.querySelector('#chatgpt-import-text');
+    let pasteTimer;
+    function reviewAfterPaste() {
+      clearTimeout(pasteTimer);
+      // The browser inserts the pasted text after dispatching the paste event.
+      pasteTimer = setTimeout(()=>{
+        if (!form.isConnected || manualText.disabled || !manualText.value.trim()) return;
+        preview(manualText.value,form);
+      },0);
+    }
+    manualText.addEventListener('paste',reviewAfterPaste);
+    manualText.addEventListener('input',event=>{
+      if (event.inputType==='insertFromPaste') reviewAfterPaste();
+    });
     const clipboardButton = form.querySelector('#import-chatgpt-clipboard');
     clipboardButton.addEventListener('click',async()=>{
       let text;
@@ -2350,7 +2372,7 @@ W odpowiedzi pokaż wyłącznie gotowy JSON w jednym bloku kodu oznaczonym jako 
         if (!form.isConnected) return;
         const manual = form.querySelector('#chatgpt-import-manual');
         manual.hidden = false;
-        manual.querySelector('textarea').disabled = false;
+        manualText.disabled = false;
         const review = form.querySelector('#chatgpt-import-review');
         review.hidden = false;
         review.disabled = false;
