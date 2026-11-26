@@ -1,8 +1,0 @@
-{
-  "name": "moja-kuchnia-import-przepisow",
-  "main": "recipe-import-worker.js",
-  "compatibility_date": "2026-11-26",
-  "vars": {
-    "APP_ORIGIN": "https://marcinsuchy23-hue.github.io"
-  }
-}

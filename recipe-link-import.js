@@ -5,7 +5,24 @@
   const hasType = (value, type) => asList(value).some(item =>
     typeof item === 'string' && (item === type || item.endsWith('/'+type) || item === 'schema:'+type));
 
-  function parse(html, sourceUrl) {
+  function recipeUrl(value, base) {
+    if (typeof value!=='string' || !value) return null;
+    try {
+      const url = new URL(value,base);
+      if (url.protocol!=='https:' && url.protocol!=='http:') return null;
+      const host = url.hostname.replace(/^www\./,'')+(url.port ? ':'+url.port : '');
+      const path = url.pathname.replace(/\/+$/,'') || '/';
+      for (const key of [...url.searchParams.keys()]) {
+        if (/^utm_|^(?:fbclid|gclid)$/i.test(key)) url.searchParams.delete(key);
+      }
+      url.searchParams.sort();
+      return {host,key:host+path+url.search};
+    } catch {
+      return null;
+    }
+  }
+
+  function parse(html, sourceUrl, responseUrl) {
     // Templates keep the fetched markup inert, including its images and iframes.
     const parsed = new DOMParser().parseFromString('', 'text/html');
     const page = parsed.createElement('template');
@@ -52,6 +69,35 @@
       return {name,description,servings,ingredients,instructions};
     }
 
+    const base = responseUrl || sourceUrl;
+    const input = recipeUrl(sourceUrl);
+    const effective = recipeUrl(responseUrl);
+    const canonical = recipeUrl(page.content.querySelector('link[rel~="canonical"]')?.getAttribute('href'),base);
+    const expected = new Set([effective?.key,input?.key]);
+    if (canonical && (canonical.host===effective?.host || canonical.host===input?.host)) expected.add(canonical.key);
+
+    function findRecipe(candidates) {
+      const urlsOf = candidate=>{
+        const links = [candidate.url,candidate.mainEntityOfPage?.['@id'],candidate.mainEntityOfPage];
+        const addresses = links.map(link=>recipeUrl(link,base)).filter(Boolean);
+        if (addresses.length) return addresses;
+        const identifier = recipeUrl(candidate['@id'],base);
+        return identifier ? [identifier] : [];
+      };
+      const unlinked = [];
+      for (const candidate of candidates) {
+        const urls = urlsOf(candidate);
+        if (urls.some(url=>expected.has(url.key))) {
+          const recipe = normalize(candidate);
+          if (recipe) return recipe;
+        } else if (!urls.length) {
+          const recipe = normalize(candidate);
+          if (recipe) unlinked.push(recipe);
+        }
+      }
+      return unlinked.length===1 ? unlinked[0] : null;
+    }
+
     const candidates = [];
     for (const script of page.content.querySelectorAll('script[type="application/ld+json"]')) {
       let schema;
@@ -65,28 +111,14 @@
         const node = nodes.pop();
         if (!node || typeof node !== 'object') continue;
         if (hasType(node['@type'], 'Recipe')) candidates.push(node);
-        nodes.push(...Object.values(node).filter(value => value && typeof value === 'object').reverse());
+        const children = Object.values(node);
+        for (let i=children.length-1;i>=0;i--) {
+          if (children[i] && typeof children[i]==='object') nodes.push(children[i]);
+        }
       }
     }
-
-    function matchesSource(candidate) {
-      const candidatesUrls = [candidate.url, candidate['@id'], candidate.mainEntityOfPage?.['@id'], candidate.mainEntityOfPage];
-      return candidatesUrls.some(value => {
-        if (typeof value !== 'string' || !sourceUrl) return false;
-        try {
-          const url = new URL(value, sourceUrl);
-          const source = new URL(sourceUrl);
-          return url.origin === source.origin && url.pathname === source.pathname;
-        } catch {
-          return false;
-        }
-      });
-    }
-
-    for (const candidate of [...candidates.filter(matchesSource), ...candidates]) {
-      const recipe = normalize(candidate);
-      if (recipe) return recipe;
-    }
+    const jsonRecipe = findRecipe(candidates);
+    if (jsonRecipe) return jsonRecipe;
 
     // Some publishers mark up recipes directly in the page instead of using JSON-LD.
     const fields = (scope, property) => [...scope.querySelectorAll(`[itemprop~="${property}"]`)].filter(item =>
@@ -99,15 +131,61 @@
       return {name,text:valueOf(fields(item,'text')[0]) ?? valueOf(item)};
     }
 
+    const microdata = [];
     for (const scope of page.content.querySelectorAll('[itemscope][itemtype]')) {
       if (!hasType(scope.getAttribute('itemtype').split(/\s+/), 'Recipe')) continue;
-      const recipe = normalize({
+      const link = fields(scope,'url')[0];
+      microdata.push({
+        url:link?.getAttribute('href') || link?.getAttribute('content'),
+        '@id':scope.getAttribute('itemid'),
         name:valueOf(fields(scope,'name')[0]),
         description:valueOf(fields(scope,'description')[0]),
         recipeYield:fields(scope,'recipeYield').map(valueOf),
         recipeIngredient:fields(scope,'recipeIngredient').map(valueOf),
         recipeInstructions:fields(scope,'recipeInstructions').map(readInstruction)
       });
+    }
+    const microdataRecipe = findRecipe(microdata);
+    if (microdataRecipe) return microdataRecipe;
+
+    const visible = node=>!node.closest('nav,aside,footer,[hidden],[aria-hidden="true"]');
+    const pageTitle = [...page.content.querySelectorAll('h1')].filter(visible);
+    function readVisibleRecipe(scope) {
+      const title = scope===page.content ? pageTitle : [...scope.querySelectorAll('h1')].filter(visible);
+      const heading = title.length===1 ? title[0] : !title.length&&pageTitle.length===1 ? pageTitle[0] : null;
+      if (!heading) return null;
+      const ingredients = [], steps = [];
+      let section, level;
+      for (const node of scope.querySelectorAll('h2,h3,h4,h5,h6,li,p')) {
+        if (!visible(node)) continue;
+        if (/^H[2-6]$/.test(node.tagName)) {
+          const depth = Number(node.tagName[1]);
+          const label = node.textContent.trim();
+          if (/^(?:składniki|ingredients)(?:\s*[:–—-]\s*.*|\s+na\b.*)?$/iu.test(label)) {
+            if (ingredients.length&&steps.length) break;
+            section = ingredients;
+            level = depth;
+          } else if (/^(?:przygotowanie|sposób przygotowania|jak przygotować|wykonanie|directions|instructions|method)\s*:?$/iu.test(label)) {
+            section = steps;
+            level = depth;
+          } else if (depth<=level) {
+            if (ingredients.length&&steps.length) break;
+            section = undefined;
+          }
+          continue;
+        }
+        if (section && section.length<100 && !node.parentElement?.closest('li') && node.textContent.trim()) {
+          section.push(node.innerHTML);
+        }
+      }
+      if (!ingredients.length || !steps.length) return null;
+      return normalize({name:heading.innerHTML,recipeIngredient:ingredients,recipeInstructions:steps});
+    }
+
+    // A page without Recipe metadata still works when it labels both recipe sections.
+    const scopes = [...page.content.querySelectorAll('article,main')].slice(0,32);
+    for (const scope of [...scopes,page.content]) {
+      const recipe = readVisibleRecipe(scope);
       if (recipe) return recipe;
     }
     return null;

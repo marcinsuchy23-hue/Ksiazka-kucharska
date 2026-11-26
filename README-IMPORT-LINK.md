@@ -1,30 +1,34 @@
 # Import przepisu z linku
 
-GitHub Pages wyświetla aplikację. Osobny Cloudflare Worker pobiera stronę
-z przepisem z AniaGotuje i przekazuje ją do formularza importu.
+**Moja kuchnia** może odczytać przepis ze strony internetowej, jeśli strona
+zezwala przeglądarce na odczyt albo aplikacja ma skonfigurowaną własną usługę
+importu. Usługa jest przydatna przy stronach takich jak AniaGotuje. Działa z
+publicznymi stronami HTML. Aplikacja szuka danych przepisu lub wyraźnie
+oznaczonych sekcji składników i przygotowania. Jakość importu zależy od źródła.
 
-1. Zaloguj się na swoje konto Cloudflare z katalogu projektu poleceniem
-   `npx wrangler login`.
-2. Uruchom `npx wrangler deploy` i skopiuj wyświetlony adres HTTPS
-   Workera w domenie `workers.dev`.
-3. W Mojej kuchni otwórz dział i wybierz **Dodaj przepis z linku**.
-   Rozwiń **Ustawienia importu z AniaGotuje** i wklej adres Workera
-   w pole **Adres usługi importu**. W polu **Adres przepisu** wklej
-   link do przepisu i wybierz **Pobierz przepis**. Adres Workera zostanie
-   zapamiętany w tej przeglądarce.
+## Uruchomienie usługi
 
-Workera można też utworzyć w panelu **Workers & Pages** na Cloudflare.
-W edytorze nowego Workera wklej całą zawartość
-`recipe-import-worker.js`. W ustawieniach dodaj zmienną tekstową
-`APP_ORIGIN` o wartości `https://marcinsuchy23-hue.github.io`,
-wdrażając kod i konfigurację przed skopiowaniem adresu HTTPS.
+1. Wdróż katalog `recipe-import-server` na hostingu, który uruchamia
+   kontenery Docker i udostępnia im publiczny adres HTTPS. W panelu hostingu
+   wskaż go jako katalog główny usługi oraz wybierz dołączony
+   `Dockerfile`. Kontener nasłuchuje na porcie z ustawienia `PORT`
+   hostingu lub na 8080. Do sprawdzenia działania serwera służy `/health`.
+2. Przy standardowym linku GitHub Pages ustaw `APP_ORIGIN` na
+   `https://marcinsuchy23-hue.github.io`. Przy własnej domenie podaj jej
+   origin, czyli protokół i nazwę domeny bez ścieżki. Dla usługi prywatnej
+   ustaw też `IMPORT_PATH` jako długą, losową ścieżkę poprzedzoną `/`.
+3. W Mojej kuchni wejdź do działu i wybierz **Dodaj przepis z linku**.
+   Rozwiń ustawienia importu i podaj adres HTTPS usługi. Jeśli ustawiłeś
+   `IMPORT_PATH`, dopisz tę ścieżkę do adresu. Wklej link do przepisu,
+   sprawdź szkic i zapisz go w aplikacji.
 
-Domyślna konfiguracja dopuszcza żądania z
-`https://marcinsuchy23-hue.github.io`. Przy hostingu aplikacji pod innym
-adresem zmień `APP_ORIGIN` w `wrangler.jsonc` na origin aplikacji, czyli
-protokół i domenę bez ścieżki, i ponownie wdróż Workera.
+Do uruchomienia poza kontenerem wystarczy Node.js 22 lub nowszy i polecenie
+`node recipe-import-server/server.mjs`. Serwer przyjmuje
+`GET /?url=<zakodowany adres>` lub ten sam parametr pod ścieżką
+`IMPORT_PATH`. Dostawca hostingu może naliczać własne opłaty.
 
-Worker przyjmuje żądanie `GET /?url=<zakodowany adres przepisu>`.
-Obsługuje wyłącznie adresy HTTPS przepisów z AniaGotuje i sprawdza także
-każdy adres przekierowania. Dane przepisu użytkownik zatwierdza i zapisuje
-w aplikacji.
+Serwer rozwiązuje adres DNS i sprawdza publiczny adres IP przed każdym
+połączeniem, także po przekierowaniu. Ustawione są limity czasu, rozmiaru
+strony i liczby żądań. Konto lub logowanie na stronie źródłowej nie jest
+obsługiwane. Link do przepisu trafia do skonfigurowanej usługi, a przepis
+zapisujesz w Mojej kuchni po sprawdzeniu szkicu.

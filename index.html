@@ -77,6 +77,14 @@
     .table-component-fields input {min-width:0}
     .table-components-list {padding-left:20px;margin:8px 0}
     .table-components-open {display:block;font-size:.88em;padding:5px 0;text-align:left}
+    .table-print-components {display:none}
+    .recipe-more {display:block;margin:16px auto 0}
+    .cooking-timer-dock {
+      position:fixed;inset:auto max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) auto;
+      z-index:4;display:flex;align-items:center;gap:8px;padding:8px 12px;
+      background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 5px 20px #0002
+    }
+    .cooking-timer-dock[hidden] {display:none}
     .custom-table-actions {flex-wrap:wrap}
     .custom-table th,.custom-table td {min-width:100px;white-space:pre-wrap;vertical-align:top}
     .custom-table .custom-table-row-action {min-width:34px;width:34px;padding:3px;white-space:nowrap;vertical-align:top}
@@ -90,6 +98,9 @@
     .custom-column-field input {min-width:0}
     @media print {
       .custom-table-actions,.custom-table-search,.custom-table-row-action,.table-components-open {display:none!important}
+      .table-print-components {display:block;margin-top:6px;white-space:normal}
+      .table-print-components ul {margin:3px 0;padding-left:14px}
+      .cooking-timer-dock,.recipe-more {display:none!important}
       .custom-table {table-layout:fixed}
       .custom-table th,.custom-table td {min-width:0;overflow-wrap:anywhere}
       .custom-table tr {break-inside:avoid}
@@ -181,49 +192,76 @@
       <input id="import-file" type="file" accept="application/json,.json" class="hidden">
     </div>
   </header>
+  <aside id="storage-warning" class="empty" hidden aria-live="polite">
+    <p id="storage-warning-text"></p>
+    <button type="button" id="reload-cookbook" class="quiet-button">Wczytaj najnowsze dane</button>
+  </aside>
   <main id="main" class="main"></main>
   <p class="footer-note">Twoje przepisy są zapisane na tym urządzeniu.</p>
 </div>
+<aside id="cooking-timer-dock" class="cooking-timer-dock" aria-label="Minutnik gotowania" hidden>
+  <output aria-live="off"></output><button type="button" class="quiet-button">Zatrzymaj</button>
+</aside>
 <div id="overlay-root"></div><div id="toast-root"></div>
-<script src="./tesseract.min.js"></script>
 <script src="./recipe-link-import.js"></script>
+<script src="./cookbook-storage.js"></script>
 <script>
 (()=>{
   const KEY='domowa-kuchnia-v1';
   const colors=['#e7eee4','#f7e8dc','#eee8f4','#e5eef1','#f2ebd8','#f3e5e7'];
   const icons=['📖','🍃','🍲','🥣','🍰','🫙','🥗','🍋'];
+  let savedCookbook = null;
+  let damagedCookbook = false;
   let state=load(), route={type:'home'}, search='', homeSearch='';
   const main=document.querySelector('#main');
-  function normalizeCookbook(data) {
-    const prepEntries = [...(Array.isArray(data.prepEntries) ? data.prepEntries : [])];
-    const ids = new Set(prepEntries.map(entry=>entry.id));
-    for (const book of data.books) {
-      for (const category of book.categories) {
-        category.recipes = category.recipes.filter(recipe=>{
-          if (recipe.kind!=='prep-sv') return true;
-          if (!ids.has(recipe.id)) {
-            prepEntries.push(recipe);
-            ids.add(recipe.id);
-          }
-          return false;
-        });
-      }
-    }
-    return {books:data.books,prepEntries,prepTile:data.prepTile||{},tables:Array.isArray(data.tables)?data.tables:[]};
-  }
   function load() {
     try {
-      const data = JSON.parse(localStorage.getItem(KEY));
-      if (Array.isArray(data?.books)) return normalizeCookbook(data);
-    } catch {}
+      savedCookbook = localStorage.getItem(KEY);
+      if (savedCookbook!==null) return cookbookStorage.normalize(JSON.parse(savedCookbook));
+    } catch {
+      damagedCookbook = true;
+    }
     return {books:[],prepEntries:[],prepTile:{},tables:[]};
   }
-  function save(){localStorage.setItem(KEY,JSON.stringify(state))}
+
+  function showStorageWarning(message,canReload) {
+    document.querySelector('#storage-warning-text').textContent = message;
+    document.querySelector('#reload-cookbook').hidden = !canReload;
+    document.querySelector('#storage-warning').hidden = false;
+  }
+
+  function warnAboutNewerCookbook() {
+    showStorageWarning('Książka zmieniła się w innej karcie. Przed zapisem wczytaj najnowsze dane.',true);
+  }
+
+  function save(next=state,{allowReplacement=false}={}) {
+    if (damagedCookbook && !allowReplacement) {
+      throw Object.assign(new Error('Odtwórz prawidłową kopię przed zapisaniem zmian.'),{name:'CookbookRecoveryError'});
+    }
+    if (localStorage.getItem(KEY)!==savedCookbook) {
+      warnAboutNewerCookbook();
+      throw Object.assign(new Error('Książka zmieniła się w innej karcie. Wczytaj najnowsze dane.'),{name:'CookbookConflictError'});
+    }
+    const snapshot = JSON.stringify(next);
+    localStorage.setItem(KEY,snapshot);
+    savedCookbook = snapshot;
+    damagedCookbook = false;
+    document.querySelector('#storage-warning').hidden = true;
+  }
+
+  window.addEventListener('storage',event=>{
+    if (event.storageArea===localStorage && (event.key===KEY || event.key===null) &&
+        localStorage.getItem(KEY)!==savedCookbook) warnAboutNewerCookbook();
+  });
+  document.querySelector('#reload-cookbook').addEventListener('click',()=>location.reload());
+  if (damagedCookbook) {
+    showStorageWarning('Dane zapisane w przeglądarce są nieczytelne. Możesz je pobrać lub odtworzyć prawidłową kopię.',false);
+  }
   function esc(s=''){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
   const bookBy=id=>state.books.find(x=>x.id===id), catBy=(b,id)=>b?.categories.find(x=>x.id===id), recipeBy=(b,c,id)=>c?.recipes.find(x=>x.id===id);
   function id(){return crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2)}
   function crumb(items){return `<nav class="crumbs">${items.map((x,i)=>i<items.length-1?`<button class="crumb" data-route="${x.route}">${esc(x.label)}</button><span>›</span>`:`<span class="crumb current">${esc(x.label)}</span>`).join('')}</nav>`}
-  function card(title,meta,icon,tint,action,cls='',photo='',tileStyle={}){const size=[22,26,30,34].includes(Number(tileStyle.size))?Number(tileStyle.size):26,weight=[400,500,600,700,800].includes(Number(tileStyle.weight))?Number(tileStyle.weight):700;return `<button class="tile ${cls}${photo?' has-photo':''}" data-action="${action}" style="--tint:${tint};--tile-title-size:${size}px;--tile-title-weight:${weight}">${photo?`<img class="tile-photo" src="${esc(photo)}" alt="">`:''}<span class="tile-arrow">↗</span>${photo?'':`<span class="tile-icon">${icon}</span>`}<span class="tile-title">${esc(title)}</span><span class="tile-meta">${esc(meta)}</span></button>`}
+  function card(title,meta,icon,tint,action,cls='',photo='',tileStyle={}){const size=[22,26,30,34].includes(Number(tileStyle.size))?Number(tileStyle.size):26,weight=[400,500,600,700,800].includes(Number(tileStyle.weight))?Number(tileStyle.weight):700;return `<button class="tile ${cls}${photo?' has-photo':''}" data-action="${action}" style="--tint:${tint};--tile-title-size:${size}px;--tile-title-weight:${weight}">${photo?`<img class="tile-photo" src="${esc(photo)}" loading="lazy" decoding="async" alt="">`:''}<span class="tile-arrow">↗</span>${photo?'':`<span class="tile-icon">${icon}</span>`}<span class="tile-title">${esc(title)}</span><span class="tile-meta">${esc(meta)}</span></button>`}
   function empty(title,body,button,action){return `<div class="empty"><div class="empty-icon">🥄</div><h2>${title}</h2><p>${body}</p><button class="primary-button" data-action="${action}">${button}</button></div>`}
   function tileStyleFields(item={}){const size=[22,26,30,34].includes(Number(item?.tileTitleSize))?Number(item.tileTitleSize):26,weight=[400,500,600,700,800].includes(Number(item?.tileTitleWeight))?Number(item.tileTitleWeight):700;return '<div class="field-row"><div class="field"><label>Wielkość nazwy na kafelku</label><select name="tileTitleSize"><option value="22" '+(size===22?'selected':'')+'>Mała</option><option value="26" '+(size===26?'selected':'')+'>Średnia</option><option value="30" '+(size===30?'selected':'')+'>Duża</option><option value="34" '+(size===34?'selected':'')+'>Bardzo duża</option></select></div><div class="field"><label>Grubość czcionki</label><select name="tileTitleWeight"><option value="400" '+(weight===400?'selected':'')+'>Zwykła</option><option value="500" '+(weight===500?'selected':'')+'>Lekko pogrubiona</option><option value="600" '+(weight===600?'selected':'')+'>Średnia</option><option value="700" '+(weight===700?'selected':'')+'>Pogrubiona</option><option value="800" '+(weight===800?'selected':'')+'>Bardzo pogrubiona</option></select></div></div>'}
   function render(){
@@ -254,23 +292,22 @@
     const input = main.querySelector('#home-recipe-search');
     const results = main.querySelector('#home-recipe-results');
     const bookList = main.querySelector('#home-books');
+    const homePager = recipePager(results);
     function refreshResults() {
-      const query = homeSearch.trim().toLocaleLowerCase('pl');
+      const query = searchText(homeSearch);
       results.hidden = !query;
       bookList.hidden = Boolean(query);
       if (!query) {
-        results.replaceChildren();
+        homePager.set([]);
         return;
       }
       const matches = books.flatMap(book => book.categories.flatMap(category =>
         category.recipes.filter(recipe => recipeMatches(recipe,query)).map(recipe => ({book,category,recipe}))));
       matches.push(...state.prepEntries.filter(recipe=>recipeMatches(recipe,query)).map(recipe=>({recipe})));
-      results.innerHTML = matches.length ? `<div class="grid">${matches.map(({book,category,recipe},i) =>
-        card(recipe.name,recipe.kind==='prep-sv'?
+      homePager.set(matches,({book,category,recipe},i)=>card(recipe.name,recipe.kind==='prep-sv'?
           `${prepTemperature(recipe)} · ${recipe.prep.duration} · Prep sous-vide`:`${book.name} · ${category.name}`,'📖',colors[i%colors.length],
           book?`recipe:${book.id}:${category.id}:${recipe.id}`:`prep-entry:${recipe.id}`,'recipe-tile',recipe.photo||'',
-          {size:recipe.tileTitleSize,weight:recipe.tileTitleWeight})).join('')}</div>` :
-        '<div class="empty"><h2>Nie znaleziono przepisu</h2><p>Spróbuj wpisać inną nazwę.</p></div>';
+          {size:recipe.tileTitleSize,weight:recipe.tileTitleWeight}));
     }
     input.addEventListener('input', () => {
       homeSearch = input.value;
@@ -279,11 +316,47 @@
     refreshResults();
   }
 
+  function searchText(value) {
+    return String(value??'').trim().toLocaleLowerCase('pl').normalize('NFD')
+      .replace(/\p{M}/gu,'').replace(/ł/g,'l');
+  }
+
+  function recipePager(results) {
+    const pageSize = 48;
+    let entries = [], cardMarkup, shown = 0;
+    results.innerHTML = `<div class="grid"></div><div class="empty" hidden>
+      <h2>Nie znaleziono przepisu</h2><p>Spróbuj wpisać inną nazwę.</p></div>
+      <button type="button" class="quiet-button recipe-more" hidden>Pokaż kolejne</button>`;
+    const grid = results.querySelector('.grid');
+    const empty = results.querySelector('.empty');
+    const more = results.querySelector('.recipe-more');
+    function appendPage(keepFocus=false) {
+      const page = entries.slice(shown,shown+pageSize);
+      const firstIndex = shown;
+      grid.insertAdjacentHTML('beforeend',page.map((entry,i)=>cardMarkup(entry,firstIndex+i)).join(''));
+      shown += page.length;
+      more.hidden = shown>=entries.length;
+      if (!more.hidden) more.textContent = `Pokaż kolejne (${entries.length-shown})`;
+      if (keepFocus) grid.children[firstIndex]?.focus();
+    }
+    more.addEventListener('click',()=>appendPage(true));
+    return {
+      set(items,markup) {
+        entries = items;
+        cardMarkup = markup;
+        shown = 0;
+        grid.replaceChildren();
+        empty.hidden = entries.length>0;
+        appendPage();
+      }
+    };
+  }
+
   function recipeMatches(recipe,query) {
     const prep = recipe.prep;
     const values = [recipe.name,recipe.description];
     if (prep) values.push('prep sous-vide',prep.name,prep.temperature == null ? '' : prepTemperature(recipe),prep.duration,prep.size,prep.notes);
-    return values.join(' ').toLocaleLowerCase('pl').includes(query);
+    return searchText(values.join(' ')).includes(query);
   }
   function renderBook(){const b=bookBy(route.book);if(!b){route={type:'home'};return renderHome()};
     main.innerHTML=`${crumb([{label:'Moja kuchnia',route:'home'}, {label:b.name}])}<section class="page-head"><div><div class="eyebrow">Książka kucharska</div><h1 class="heading">${esc(b.name)}</h1><p class="subheading">Wybierz dział albo dodaj nowy.</p></div><div class="top-actions"><button class="quiet-button" data-action="edit-book:${b.id}">Edytuj</button><button class="primary-button" data-action="new-category:${b.id}">＋ Dodaj dział</button></div></section>${b.categories.length?`<div class="grid">${b.categories.map((c,i)=>`<div class="tile-edit-wrap">${card(c.name,`${c.recipes.length} ${plural(c.recipes.length,'przepis','przepisy','przepisów')}`,icons[(i+1)%icons.length],colors[(i+2)%colors.length],`category:${b.id}:${c.id}`,'',c.photo||'',{size:c.tileTitleSize,weight:c.tileTitleWeight})}<button type="button" class="text-button tile-edit-link" data-action="edit-category:${b.id}:${c.id}">Edytuj dział i zdjęcie</button></div>`).join('')}</div>`:empty('Dodaj pierwszy dział','Działy pomagają uporządkować przepisy, na przykład na „Sosy”, „Zupy” albo „Ciasta”.','＋ Dodaj dział',`new-category:${b.id}`)}`;
@@ -292,11 +365,13 @@
     main.innerHTML=`${crumb([{label:'Moja kuchnia',route:'home'},{label:b.name,route:`book:${b.id}`},{label:c.name}])}<section class="page-head"><div><div class="eyebrow">Dział w książce „${esc(b.name)}”</div><h1 class="heading">${esc(c.name)}</h1><p class="subheading">Twoje sprawdzone przepisy, zawsze pod ręką.</p></div><div class="top-actions"><button class="quiet-button" data-action="edit-category:${b.id}:${c.id}">Edytuj dział</button><button class="quiet-button" data-action="scan-photo:${b.id}:${c.id}">▧ Ze zdjęcia</button><button type="button" class="quiet-button" data-action="dictate-recipe:${b.id}:${c.id}">Podyktuj przepis</button><button type="button" class="quiet-button" data-action="import-recipe-link:${b.id}:${c.id}">Dodaj przepis z linku</button><button class="primary-button" data-action="new-recipe:${b.id}:${c.id}">＋ Dodaj przepis</button></div></section><input id="recipe-photo" class="hidden" type="file" accept="image/*">${c.recipes.length?`<div class="toolbar"><input id="recipe-search" class="search" type="search" placeholder="⌕  Szukaj przepisu…" value="${esc(search)}"></div><div id="recipe-search-results"></div>`:empty('Ten dział czeka na przepisy','Dodaj pierwszy przepis ze zdjęcia albo wpisz go ręcznie.','＋ Dodaj przepis',`new-recipe:${b.id}:${c.id}`)}`;
     const input = main.querySelector('#recipe-search');
     if (input) {
-      const results = main.querySelector('#recipe-search-results');
+      const pager = recipePager(main.querySelector('#recipe-search-results'));
       const refreshResults = () => {
-        const q = search.trim().toLocaleLowerCase('pl');
-        const recipes = c.recipes.filter(r=>recipeMatches(r,q));
-        results.innerHTML = recipes.length ? `<div class="grid">${recipes.map((r,i)=>card(r.name,r.sections.length?`${r.sections.length} ${plural(r.sections.length,'etap','etapy','etapów')}`:'Otwórz przepis',['🍲','🥘','🍝','🥧','🥗','🍮'][i%6],colors[(i+1)%colors.length],`recipe:${b.id}:${c.id}:${r.id}`,'recipe-tile',r.photo||'',{size:r.tileTitleSize,weight:r.tileTitleWeight})).join('')}</div>`:`<div class="empty"><div class="empty-icon">⌕</div><h2>Nie znaleziono przepisu</h2><p>Spróbuj wpisać inną nazwę.</p></div>`;
+        const query = searchText(search);
+        const recipes = query ? c.recipes.filter(recipe=>recipeMatches(recipe,query)) : c.recipes;
+        pager.set(recipes,(r,i)=>card(r.name,r.sections.length?`${r.sections.length} ${plural(r.sections.length,'etap','etapy','etapów')}`:'Otwórz przepis',
+          ['🍲','🥘','🍝','🥧','🥗','🍮'][i%6],colors[(i+1)%colors.length],`recipe:${b.id}:${c.id}:${r.id}`,'recipe-tile',r.photo||'',
+          {size:r.tileTitleSize,weight:r.tileTitleWeight}));
       };
       input.addEventListener('input', () => {
         search = input.value;
@@ -308,13 +383,13 @@
   function renderRecipe(){const b=bookBy(route.book),c=catBy(b,route.category),r=recipeBy(b,c,route.recipe);if(!b||!c||!r){route={type:'home'};return renderHome()};
     const base=Number(r.servings)||4;
     const ingredientRows=r.sections.flatMap((section,si)=>(section.ingredients||[]).map((ingredient,ii)=>({section:si,index:ii,sectionName:section.name||`Etap ${si+1}`,amount:ingredient.amount||'',name:ingredient.name||''})));
-    const scaleable=ingredientRows.filter(item=>{const parsed=readQuantity(item.amount);return parsed&&Number.isFinite(parsed.value)&&parsed.value>0});
+    const scaleable=ingredientRows.filter(item=>readQuantity(item.amount)?.value>0&&!readQuantityRange(item.amount));
     main.innerHTML=`<div class="recipe-screen" id="recipe-zoom-area">${crumb([{label:'Moja kuchnia',route:'home'},{label:b.name,route:`book:${b.id}`},{label:c.name,route:`category:${b.id}:${c.id}`},{label:r.name}])}${viewZoomControls('Widok przepisu','<button type="button" class="quiet-button" id="recipe-print">Zapisz / drukuj PDF</button>')}<article class="recipe-view"><header class="recipe-cover">${r.photo?`<img class="recipe-photo" src="${esc(r.photo)}" alt="Zdjęcie przepisu">`:''}<div class="eyebrow">${esc(c.name)} · ${esc(b.name)}</div><h1 class="heading">${esc(r.name)}</h1>${r.description?`<p class="recipe-description">${esc(r.description)}</p>`:''}${recipeSourceMarkup(r.sourceUrl)}</header><section class="portion-control" aria-label="Przeliczanie przepisu"><div class="calc-field"><label for="scale-scope">Przelicz</label><select id="scale-scope"><option value="all">Cały przepis</option>${r.sections.map((s,i)=>`<option value="${i}">Tylko: ${esc(s.name||`Etap ${i+1}`)}</option>`).join('')}</select></div><div class="calc-field"><label for="scale-mode">Według</label><select id="scale-mode"><option value="portions">Liczby porcji</option><option value="ingredient">Ilości składnika</option><option value="mass">Docelowej masy</option>${r.showPansAndMixer!==false?'<option value="pans">Liczby foremek</option>':''}</select></div><div class="calc-field portion-field" id="portion-setting"><label for="portion-count">Porcje</label><input id="portion-count" type="number" min="1" max="100" step="1" value="${base}"></div><div id="ingredient-setting" class="calc-field" hidden><label for="scale-ingredient">Składnik</label><select id="scale-ingredient"></select></div><div id="target-setting" class="calc-field" hidden><label for="scale-target">Nowa ilość</label><input id="scale-target" type="text" placeholder="np. 300 g"></div><div class="calc-field" id="fixed-goal-setting" hidden><label for="fixed-goal">Cel dla etapu</label><select id="fixed-goal">
       <option value="">Przelicz proporcjonalnie</option><option value="mass">Zachowaj składnik i dopasuj masę</option>
       ${r.showPansAndMixer!==false?'<option value="pans">Zachowaj składnik i dopasuj foremki</option>':''}
     </select></div><div class="calc-field" id="target-mass-setting" hidden><label for="target-mass">Docelowa masa etapu (g)</label><input id="target-mass" type="number" min="1" inputmode="decimal"></div><div class="calc-field" id="pan-count-setting" hidden><label for="pan-count">Liczba foremek</label><input id="pan-count" type="number" min="1" step="1" inputmode="numeric"></div><details class="baking-settings" ${r.showPansAndMixer===false?'hidden':''}><summary>Foremki i limit robota</summary><div class="baking-fields"><div class="calc-field"><label for="pan-mass">Ciasto na foremkę (g)</label><input id="pan-mass" type="number" min="1" inputmode="decimal"></div><div class="calc-field"><label for="mixer-limit">Limit masy ciasta robota (g)</label><input id="mixer-limit" type="number" min="1" inputmode="decimal"></div></div></details><p id="baking-summary" class="calc-note" aria-live="polite" hidden></p><p id="scale-note" class="calc-note">Wybierz, czy przeliczać cały przepis, czy tylko jeden etap.</p></section><div class="top-actions recipe-actions" style="justify-content:flex-end;margin:0 0 14px">${r.sections.length ? `<button type="button" class="quiet-button" data-action="cook-recipe:${b.id}:${c.id}:${r.id}">Tryb gotowania</button>` : ''}<button class="quiet-button" data-action="edit-recipe:${b.id}:${c.id}:${r.id}">Edytuj przepis</button><button type="button" class="quiet-button" data-action="copy-recipe:${b.id}:${c.id}:${r.id}">Skopiuj przepis</button><button class="danger-button" data-action="delete-recipe:${b.id}:${c.id}:${r.id}">Usuń</button></div>${r.sections.map((s,i)=>`<section class="recipe-section" data-scale-section="${i}"><h2>${esc(s.name||`Etap ${i+1}`)}</h2>${s.description?`<p class="section-description">${esc(s.description)}</p>`:''}${s.ingredients?.length?`<div class="label">Składniki</div><ul class="ingredient-list">${s.ingredients.map((x,j)=>`<li><span class="amount" data-base-amount="${esc(x.amount||'')}" data-scale-section="${i}" data-scale-item="${i}:${j}">${esc(x.amount||'')}</span><span>${esc(x.name||'')}${linkedIngredientButton(x)}${r.bakerPercentages?`<small class="baker-percent" data-baker-percent hidden></small>`:''}</span></li>`).join('')}</ul>`:''}${s.instructions?`<div class="label" style="margin-bottom:8px">Jak przygotować</div><p class="instructions">${esc(s.instructions)}</p>`:''}${stagePhotosMarkup(s)}${r.bakerPercentages?`<p class="baker-summary" data-baker-summary hidden></p>`:''}<p class="stage-mass" data-stage-mass hidden></p></section>`).join('')}<div class="bake-journal-button"><button type="button" class="quiet-button" data-action="journal-recipe:${b.id}:${c.id}:${r.id}">Dziennik wypieków</button></div></article></div>`;
     setupRecipeScaling(r,base,scaleable);
-    bindViewZoom(r.viewZoom,zoom=>{r.viewZoom=zoom;save();});
+    bindViewZoom(r.viewZoom,zoom=>saveViewZoom(r,zoom));
     main.querySelector('#recipe-print').addEventListener('click',()=>window.print());
   }
 
@@ -338,6 +413,17 @@
     setZoom(Number(initialValue)||1,false);
     main.querySelector('#recipe-zoom-out').addEventListener('click',()=>setZoom(zoom-.1,true));
     main.querySelector('#recipe-zoom-in').addEventListener('click',()=>setZoom(zoom+.1,true));
+  }
+
+  function saveViewZoom(item,zoom) {
+    const previous = item.viewZoom;
+    item.viewZoom = zoom;
+    try {
+      save();
+    } catch {
+      item.viewZoom = previous;
+      toast('Zmiana wielkości dotyczy tego podglądu. Nie udało się zapisać ustawienia.');
+    }
   }
 
   function mentionsPrepMethod(text) {
@@ -379,10 +465,10 @@
     const results = main.querySelector('#prep-index-results');
     const print = main.querySelector('#prep-print');
     function refresh() {
-      const query = input.value.trim().toLocaleLowerCase('pl');
+      const query = searchText(input.value);
       const matches = entries.filter(({book,category,recipe})=>{
         return recipeMatches(recipe,query) ||
-          Boolean(book && `${book.name} ${category.name}`.toLocaleLowerCase('pl').includes(query));
+          Boolean(book && searchText(`${book.name} ${category.name}`).includes(query));
       });
       print.disabled = !matches.length;
       results.innerHTML = matches.length ? `<section class="prep-list">
@@ -614,35 +700,83 @@
     document.querySelector('#back-to-journal').addEventListener('click',()=>openBakeJournal(recipe));
   }
 
-  function startCooking(recipe) {
-    const displayed = new Map([...main.querySelectorAll('[data-scale-item]')].map(el=>[el.dataset.scaleItem,el.textContent]));
-    const checked = new Set();
-    let step = 0;
-    let deadline = 0;
-    let timer, audio, alarm;
-    showForm('Tryb gotowania',`<div id="cook-stage"></div>
-      <div class="cooking-nav"><button type="button" class="quiet-button" id="cook-back">Wstecz</button>
-        <button type="button" class="quiet-button" id="cook-next">Dalej</button></div>
-      <div class="cooking-nav"><output id="cook-timer" role="status"></output>
-        <button type="button" class="quiet-button" id="cook-stop" hidden>Zatrzymaj minutnik</button></div>`);
-    const stage = document.querySelector('#cook-stage');
-    const back = document.querySelector('#cook-back');
-    const next = document.querySelector('#cook-next');
-    const clock = document.querySelector('#cook-timer');
-    const stop = document.querySelector('#cook-stop');
+  function instructionTimers(text) {
+    const duration = /(?<![\p{L}\d.,])(\d+(?:[,.]\d+)?)\s*(?:(?:[–—-]|do\b)\s*(\d+(?:[,.]\d+)?)\s*)?(godz(?:in(?:y|a|ę)?)?\.?|h|min(?:ut(?:y|a|ę)?)?\.?|sek(?:und(?:y|a|ę)?)?\.?|s)(?![\p{L}\d])/giu;
+    const times = new Map();
+    let previous;
+    function add(seconds,label) {
+      const rounded = Math.round(seconds);
+      if (rounded>0 && rounded<=86400) times.set(rounded,label);
+    }
+    function flush() {
+      if (previous) add(previous.seconds,text.slice(previous.start,previous.end));
+      previous = null;
+    }
+    for (const match of text.matchAll(duration)) {
+      const unit = match[3].toLowerCase();
+      const multiplier = unit==='h'||unit.startsWith('godz') ? 3600 : unit.startsWith('min') ? 60 : 1;
+      const seconds = Number(match[1].replace(',','.'))*multiplier;
+      if (match[2]) {
+        flush();
+        add(seconds,`${match[1]} ${match[3]}`);
+        add(Number(match[2].replace(',','.'))*multiplier,`${match[2]} ${match[3]}`);
+        continue;
+      }
+      const gap = previous ? text.slice(previous.end,match.index) : '';
+      if (previous && previous.unit>multiplier && /^[ \t]+(?:i[ \t]+)?$/iu.test(gap)) {
+        previous.seconds += seconds;
+        previous.unit = multiplier;
+        previous.end = match.index+match[0].length;
+      } else {
+        flush();
+        previous = {seconds,unit:multiplier,start:match.index,end:match.index+match[0].length};
+      }
+    }
+    flush();
+    return times;
+  }
 
-    function stopTimer() {
-      clearInterval(timer);
-      clearTimeout(alarm?.hideStop);
-      alarm?.oscillator.stop();
-      alarm = undefined;
-      deadline = 0;
-      stop.hidden = true;
-      clock.textContent = '';
+  const cookingTimer = (() => {
+    const dock = document.querySelector('#cooking-timer-dock');
+    const dockClock = dock.querySelector('output');
+    const dockStop = dock.querySelector('button');
+    const clockKey = 'moja-kuchnia-cooking-deadline';
+    let deadline = 0, interval, audio, alarm, view, finished = false;
+    try { deadline = Number(sessionStorage.getItem(clockKey))||0; } catch {}
+
+    function setDeadline(value) {
+      deadline = value;
+      try {
+        if (value) sessionStorage.setItem(clockKey,String(value));
+        else sessionStorage.removeItem(clockKey);
+      } catch {}
+    }
+
+    function updateClock(text) {
+      dock.hidden = Boolean(view)||(!deadline&&!finished);
+      dockClock.textContent = text;
+      dockStop.textContent = finished ? 'Zamknij' : 'Zatrzymaj';
+      if (view) {
+        view.clock.textContent = text;
+        view.stop.hidden = !deadline&&!finished;
+        view.stop.textContent = finished ? 'Zamknij komunikat' : 'Zatrzymaj minutnik';
+      }
+    }
+
+    function stop() {
+      clearInterval(interval);
+      interval = undefined;
+      if (alarm) {
+        alarm.stop();
+        alarm = undefined;
+      }
+      setDeadline(0);
+      finished = false;
+      updateClock('');
     }
 
     function playAlarm() {
-      if (!audio || audio.state!=='running') return;
+      if (audio?.state!=='running') return;
       const oscillator = audio.createOscillator();
       const volume = audio.createGain();
       const start = audio.currentTime+.02;
@@ -656,45 +790,82 @@
         volume.gain.linearRampToValueAtTime(0,pulse+.42);
       }
       oscillator.connect(volume).connect(audio.destination);
+      oscillator.addEventListener('ended',()=>{
+        if (alarm===oscillator) alarm = undefined;
+        oscillator.disconnect();
+        volume.disconnect();
+      },{once:true});
       oscillator.start(start);
       oscillator.stop(start+6.4);
-      stop.hidden = false;
-      alarm = {oscillator,hideStop:setTimeout(()=>{
-        alarm = undefined;
-        stop.hidden = true;
-      },6500)};
+      alarm = oscillator;
     }
 
     function tick() {
-      const seconds = Math.max(0,Math.ceil((deadline-Date.now())/1000));
-      if (!seconds) {
-        if (document.hidden) return;
-        stopTimer();
-        clock.textContent = 'Czas minął!';
-        navigator.vibrate?.([250,150,250,150,250]);
-        if (audio?.state==='running') playAlarm();
-        else audio?.resume().then(()=>{
-          if (clock.isConnected && clock.textContent==='Czas minął!') playAlarm();
-        }).catch(()=>{});
+      if (!deadline) {
+        updateClock(finished ? 'Czas minął!' : '');
         return;
       }
-      clock.textContent = `Minutnik: ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;
+      const seconds = Math.max(0,Math.ceil((deadline-Date.now())/1000));
+      if (!seconds && !document.hidden) {
+        clearInterval(interval);
+        interval = undefined;
+        setDeadline(0);
+        finished = true;
+        updateClock('Czas minął!');
+        navigator.vibrate?.([250,150,250,150,250]);
+        if (audio?.state==='running') playAlarm();
+        else audio?.resume().then(()=>{if (finished) playAlarm();}).catch(()=>{});
+      } else {
+        updateClock(`Minutnik: ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`);
+      }
     }
 
-    function resumeTimer() {
-      if (deadline && !document.hidden) tick();
+    dockStop.addEventListener('click',stop);
+    document.addEventListener('visibilitychange',()=>{if (!document.hidden&&deadline) tick();});
+    if (deadline) {
+      interval = setInterval(tick,1000);
+      tick();
     }
+    return {
+      start(seconds) {
+        stop();
+        const Audio = window.AudioContext||window.webkitAudioContext;
+        if (Audio && !audio) {
+          try { audio = new Audio(); } catch {}
+        }
+        audio?.resume().catch(()=>{});
+        setDeadline(Date.now()+seconds*1000);
+        interval = setInterval(tick,1000);
+        tick();
+      },
+      stop,
+      mount(elements) {
+        view = elements;
+        tick();
+      }
+    };
+  })();
+
+  function startCooking(recipe) {
+    const displayed = new Map([...main.querySelectorAll('[data-scale-item]')].map(el=>[el.dataset.scaleItem,el.textContent]));
+    const checked = new Set();
+    let step = 0;
+    showForm('Tryb gotowania',`<div id="cook-stage"></div>
+      <div class="cooking-nav"><button type="button" class="quiet-button" id="cook-back">Wstecz</button>
+        <button type="button" class="quiet-button" id="cook-next">Dalej</button></div>
+      <div class="cooking-nav"><output id="cook-timer" aria-live="off"></output>
+        <button type="button" class="quiet-button" id="cook-stop" hidden>Zatrzymaj minutnik</button></div>`);
+    const stage = document.querySelector('#cook-stage');
+    const back = document.querySelector('#cook-back');
+    const next = document.querySelector('#cook-next');
+    const clock = document.querySelector('#cook-timer');
+    const stop = document.querySelector('#cook-stop');
+    cookingTimer.mount({clock,stop});
 
     function renderStage() {
       const section = recipe.sections[step];
-      const times = new Map();
       const text = section.instructions || '';
-      for (const match of text.matchAll(/(\d+(?:[,.]\d+)?)\s*(godz(?:in(?:y|a)?)?|h|min(?:ut(?:y|a)?)?|sek(?:und(?:y|a)?)?|s)(?![\p{L}\d])/giu)) {
-        const unit = match[2].toLowerCase();
-        const multiplier = unit==='h'||unit.startsWith('godz') ? 3600 : unit.startsWith('min') ? 60 : 1;
-        const seconds = Math.round(Number(match[1].replace(',','.'))*multiplier);
-        if (seconds>0 && seconds<=86400) times.set(seconds,match[0]);
-      }
+      const times = instructionTimers(text);
       stage.innerHTML = `<p class="eyebrow">Etap ${step+1} z ${recipe.sections.length}</p>
         <h3>${esc(section.name || `Etap ${step+1}`)}</h3>
         ${section.description ? `<p>${esc(section.description)}</p>` : ''}
@@ -722,26 +893,12 @@
     stage.addEventListener('click',event=>{
       const button = event.target.closest('[data-cook-timer]');
       if (!button) return;
-      stopTimer();
-      const Audio = window.AudioContext || window.webkitAudioContext;
-      if (Audio && !audio) {
-        try { audio = new Audio(); } catch {}
-      }
-      audio?.resume().catch(()=>{});
-      deadline = Date.now()+Number(button.dataset.cookTimer)*1000;
-      stop.hidden = false;
-      tick();
-      timer = setInterval(tick,250);
+      cookingTimer.start(Number(button.dataset.cookTimer));
     });
     back.addEventListener('click',()=>{step--;renderStage();});
     next.addEventListener('click',()=>{step++;renderStage();});
-    stop.addEventListener('click',stopTimer);
-    document.addEventListener('visibilitychange',resumeTimer);
-    formCleanup = () => {
-      stopTimer();
-      document.removeEventListener('visibilitychange',resumeTimer);
-      audio?.close().catch(()=>{});
-    };
+    stop.addEventListener('click',cookingTimer.stop);
+    formCleanup = ()=>cookingTimer.mount(null);
     renderStage();
   }
 
@@ -760,8 +917,14 @@
     const bakingSummary = main.querySelector('#baking-summary');
     const sections = [...main.querySelectorAll('.recipe-section[data-scale-section]')];
     const amountsBySection = sections.map(section => [...section.querySelectorAll('[data-base-amount]')]);
-    const baseMasses = amountsBySection.map((amounts,i) => summarizeMass(amounts.map(el=>el.dataset.baseAmount),recipe.sections[i].ingredients));
-    const defaultStage = baseMasses.findLastIndex(mass=>mass?.max>0);
+    const addedMasses = amountsBySection.map((amounts,i) =>
+      measuredStageMass(amounts.map(el=>el.dataset.baseAmount),recipe.sections[i].ingredients));
+    const baseMasses = [];
+    recipe.sections.forEach((stage,i)=>{
+      const previous = stage.continuesPreviousStage ? baseMasses[i-1] : null;
+      baseMasses.push(combineStageMass(addedMasses[i],previous));
+    });
+    const defaultStage = addedMasses.findLastIndex(mass=>mass?.max>0);
     if (recipe.showPansAndMixer!==false) mixerLimit.value = localStorage.getItem('domowa-kuchnia-mixer-limit') || '';
 
     function refreshItems() {
@@ -769,7 +932,7 @@
       const visible = scaleable.filter(item=>scope.value==='all'||String(item.section)===scope.value);
       items.innerHTML = visible.length ? visible.map(item=>
         `<option value="${item.section}:${item.index}">${esc(item.sectionName)} · ${esc(item.name)} (${esc(item.amount)})</option>`
-      ).join('') : '<option value="">Brak składników z podaną ilością</option>';
+      ).join('') : '<option value="">Brak składników z jedną określoną ilością</option>';
       const selected = visible.find(item=>`${item.section}:${item.index}`===previous) || visible[0];
       if (selected) items.value = `${selected.section}:${selected.index}`;
       target.value = selected?.amount || '';
@@ -795,7 +958,7 @@
       const gramsPerPan = Number(panMass.value);
       let ratio = Math.min(100,Math.max(1,Number(portions.value)||base))/base;
       let targetLabel = '';
-      let plannedMass, plannedEstimated, fixedIngredientRatio;
+      let fixedIngredientRatio;
       let explanation = 'Przeliczenie zmienia tylko podgląd.';
       if (ingredientMode) {
         const source = readQuantity(selected?.amount);
@@ -806,8 +969,9 @@
         const desiredVolume = !desiredMass && volumeUnit(desired?.tail);
         const sourceFactor = sourceMass || sourceVolume;
         const desiredFactor = desiredMass || desiredVolume;
-        if (!source || !desired || !Number.isFinite(desired.value) || desired.value<=0 ||
-            (desired.tail.trim() && (Boolean(sourceMass)!==Boolean(desiredMass) || Boolean(sourceVolume)!==Boolean(desiredVolume)))) {
+        const compatible = desired && (!desired.tail.trim() || (sourceMass && desiredMass) || (sourceVolume && desiredVolume) ||
+          (!sourceFactor && !desiredFactor && canonicalIngredientUnit(source?.tail)===canonicalIngredientUnit(desired.tail)));
+        if (!source || !desired || desired.value<=0 || !compatible || readQuantityRange(target.value)) {
           ratio = 1;
           explanation = 'Wpisz dodatnią ilość w zgodnej jednostce.';
         } else {
@@ -816,7 +980,9 @@
         }
       }
       if (baking) {
-        const weight = baseMasses[selectedStage];
+        const previous = recipe.sections[selectedStage]?.continuesPreviousStage ? baseMasses[selectedStage-1] : null;
+        const carriedWeight = previous?.min || 0;
+        const addedWeight = addedMasses[selectedStage];
         const pans = Number(panCount.value);
         const wanted = byMass ? Number(targetMass.value) : (Number.isInteger(pans) && pans>0 ? pans*gramsPerPan : 0);
         const fixedLabel = targetLabel;
@@ -826,39 +992,45 @@
           explanation = 'Wybierz składnik i wpisz dodatnią ilość w zgodnej jednostce.';
         } else if (!Number.isFinite(wanted) || wanted<=0) {
           explanation = byMass ? 'Wpisz docelową masę etapu w gramach.' : 'Wpisz liczbę foremek i masę ciasta na jedną foremkę.';
+        } else if (previous && (previous.partial || previous.min!==previous.max)) {
+          explanation = 'Podaj dokładne ilości w poprzednich etapach tego ciasta.';
+        } else if (wanted<carriedWeight) {
+          explanation = `Ciasto z poprzedniego etapu waży już ${formatGrams(carriedWeight)}.`;
         } else if (fixed) {
           const ingredient = recipe.sections[selectedStage].ingredients[selected.index];
           const amounts = amountsBySection[selectedStage].map(el=>el.dataset.baseAmount);
-          const others = summarizeMass(amounts.filter((_,i)=>i!==selected.index),
+          const others = measuredStageMass(amounts.filter((_,i)=>i!==selected.index),
             recipe.sections[selectedStage].ingredients.filter((_,i)=>i!==selected.index));
           const fixedMass = summarizeMass([fixedLabel],[ingredient]);
           const originalFixed = summarizeMass([selected.amount],[ingredient]);
-          if (!fixedMass || fixedMass.min!==fixedMass.max || !originalFixed || originalFixed.min!==originalFixed.max || !others || others.min<=0 ||
-              others.partial || others.min!==others.max) {
+          const available = wanted-carriedWeight-(fixedMass?.min||0);
+          if (!fixedMass || fixedMass.min!==fixedMass.max || !originalFixed || originalFixed.min!==originalFixed.max ||
+              (others && (others.partial || others.min!==others.max))) {
             explanation = 'Podaj masę stałego składnika i dokładne ilości pozostałych składników w tym etapie.';
-          } else if (wanted<fixedMass.min) {
-            explanation = 'Stały składnik waży więcej niż docelowa masa całego etapu.';
+          } else if (available<0) {
+            explanation = previous ? 'Ciasto z poprzedniego etapu i stały składnik razem przekraczają docelową masę.'
+              : 'Stały składnik waży więcej niż docelowa masa całego etapu.';
+          } else if (!others?.min && available>0) {
+            explanation = 'Podaj masę składników, których ilość można dopasować.';
           } else {
-            ratio = (wanted-fixedMass.min)/others.min;
+            ratio = others?.min ? available/others.min : 1;
             targetLabel = fixedLabel;
-            plannedMass = wanted;
-            plannedEstimated = fixedMass.estimated || others.estimated;
-            if (/^(zaczyn|zakwas)(?=\s|$)/iu.test((ingredient.name||'').trim()) && originalFixed?.min>0) {
+            if (/^(zaczyn|zakwas)(?=\s|$)/iu.test((ingredient.name||'').trim()) && originalFixed.min>0) {
               fixedIngredientRatio = fixedMass.min/originalFixed.min;
             }
-            explanation = `Stała ilość: ${formatGrams(fixedMass.min)}. Pozostałe składniki: ${formatGrams(wanted-fixedMass.min)}. Przeliczono tylko etap „${selected.sectionName}”.`;
+            explanation = `Stała ilość: ${formatGrams(fixedMass.min)}. Pozostałe składniki: ${formatGrams(available)}. Przeliczono tylko etap „${selected.sectionName}”.`;
           }
-        } else if (!weight || weight.min<=0 || weight.partial || weight.min!==weight.max) {
-          explanation = 'Wybierz etap, w którym wszystkie składniki mają podaną dokładną masę.';
+        } else if (!addedWeight || addedWeight.min<=0 || addedWeight.partial || addedWeight.min!==addedWeight.max) {
+          explanation = 'Wybierz etap, w którym wszystkie dodawane składniki mają podaną dokładną masę.';
         } else {
-          ratio = wanted/weight.min;
-          plannedMass = wanted;
-          plannedEstimated = weight.estimated;
-          explanation = 'Przeliczono wybrany etap. Pozostałe etapy zachowują zapisane ilości.';
+          ratio = (wanted-carriedWeight)/addedWeight.min;
+          explanation = previous
+            ? `Uwzględniono ${formatGrams(carriedWeight)} ciasta z poprzedniego etapu. Przeliczono tylko dodawane składniki.`
+            : 'Przeliczono wybrany etap. Pozostałe etapy zachowują zapisane ilości.';
         }
       }
       note.textContent = explanation;
-      let previousBaker;
+      let previousBaker, previousMass;
       const currentMasses = sections.map((section,i) => {
         const inScope = fixed ? selectedStage===i : scope.value==='all' || Number(scope.value)===i;
         for (const el of amountsBySection[i]) {
@@ -867,28 +1039,32 @@
             ? targetLabel : scaleAmount(amount,ratio,1);
         }
         const amounts = amountsBySection[i].map(el=>el.textContent);
+        const stage = recipe.sections[i];
         if (recipe.bakerPercentages) {
-          const stage = recipe.sections[i];
           previousBaker = updateBakerPercentages(section,stage,amounts,inScope?(fixedIngredientRatio??ratio):1,
             stage.continuesPreviousStage ? previousBaker : undefined);
         }
-        return updateStageMass(section,amounts,recipe.sections[i].ingredients);
+        const carried = stage.continuesPreviousStage ? previousMass : null;
+        previousMass = combineStageMass(measuredStageMass(amounts,stage.ingredients),carried);
+        renderStageMass(section,previousMass,Boolean(carried));
+        return previousMass;
       });
-      const mass = plannedMass===undefined ? currentMasses[selectedStage] : {min:plannedMass,max:plannedMass,partial:false,estimated:plannedEstimated};
+      const mass = currentMasses[selectedStage];
       const messages = [];
       const limit = Number(mixerLimit.value);
-      if (mass && (limit>0 || gramsPerPan>0)) {
+      if (mass && !mass.unmeasured && (limit>0 || gramsPerPan>0)) {
+        const min = roundedGrams(mass.min), max = roundedGrams(mass.max);
         messages.push(recipe.sections[selectedStage].name || `Etap ${selectedStage+1}`);
         if (limit>0) {
           if (mass.estimated) messages.push(`Szacunkowa masa: ${formatQuantityBounds(mass,'g')}. Limit robota: ${formatGrams(limit)}`);
-          else if (mass.min>limit) messages.push(`Przekroczony limit robota o co najmniej ${formatGrams(mass.min-limit)}`);
-          else if (mass.partial || mass.max>limit) messages.push('Nie można potwierdzić, czy masa mieści się w limicie robota');
+          else if (min>limit) messages.push(`Przekroczony limit robota o co najmniej ${formatGrams(min-limit)}`);
+          else if (mass.partial || max>limit) messages.push('Nie można potwierdzić, czy masa mieści się w limicie robota');
           else messages.push(`Masa mieści się w limicie robota (${formatGrams(limit)})`);
         }
         if (gramsPerPan>0) {
           if (!mass.partial && mass.min===mass.max) {
-            const full = Math.floor((mass.min+1e-8)/gramsPerPan);
-            const remainder = Math.max(0,mass.min-full*gramsPerPan);
+            const full = Math.floor(min/gramsPerPan+1e-10);
+            const remainder = Math.max(0,min-full*gramsPerPan);
             messages.push(`${mass.estimated?'Szacunkowo pełne foremki':'Pełne foremki'}: ${full}. Pozostanie: ${formatGrams(remainder)}`);
           } else messages.push('Dokładna liczba foremek wymaga pełnej masy etapu');
         }
@@ -918,8 +1094,42 @@
   }
   function plural(n,a,b,c){return n===1?a:n%10>=2&&n%10<=4&&(n%100<12||n%100>14)?b:c}
   const fractions={'¼':.25,'½':.5,'¾':.75,'⅓':1/3,'⅔':2/3,'⅛':.125,'⅜':.375,'⅝':.625,'⅞':.875};
-  function readQuantity(text){let m=String(text||'').match(/^\s*(\d+)\s+(\d+)\/(\d+)(.*)$/);if(m)return{value:Number(m[1])+Number(m[2])/Number(m[3]),tail:m[4]};m=String(text||'').match(/^\s*(\d+)\/(\d+)(.*)$/);if(m)return{value:Number(m[1])/Number(m[2]),tail:m[3]};m=String(text||'').match(/^\s*(\d+)?\s*([¼½¾⅓⅔⅛⅜⅝⅞])(.*)$/);if(m)return{value:Number(m[1]||0)+fractions[m[2]],tail:m[3]};m=String(text||'').match(/^\s*(\d+(?:[,.]\d+)?)(.*)$/);return m?{value:Number(m[1].replace(',','.')),tail:m[2]}:null}
-  function scaleAmount(value,target,base){if(base<=0)return value;const range=String(value||'').match(/^\s*(\d+(?:[,.]\d+)?)\s*([-–—])\s*(\d+(?:[,.]\d+)?)(.*)$/);const factor=target/base;const fmt=n=>String(Math.round(n*factor*100)/100).replace('.',',');if(range)return `${fmt(Number(range[1].replace(',','.')))}${range[2]}${fmt(Number(range[3].replace(',','.')))}${range[4]}`;const parsed=readQuantity(value);if(!parsed||!Number.isFinite(parsed.value))return value;return `${fmt(parsed.value)}${parsed.tail}`}
+  const groupedInteger = String.raw`(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)`;
+  const quantityNumber = String.raw`(?:${groupedInteger}\s+\d+\s*[/⁄]\s*\d+|\d+\s*[/⁄]\s*\d+|${groupedInteger}?\s*[¼½¾⅓⅔⅛⅜⅝⅞]|${groupedInteger}(?:[,.]\d+)?)`;
+  const quantityPattern = new RegExp(String.raw`^\s*(${quantityNumber})`);
+  const fractionPattern = new RegExp(String.raw`^(?:(${groupedInteger})\s+)?(\d+)\s*[/⁄]\s*(\d+)$`);
+  function readQuantity(text) {
+    const input = String(text||'');
+    const match = input.match(quantityPattern);
+    if (!match) return null;
+    const number = match[1].trim();
+    const fraction = number.match(fractionPattern);
+    const unicode = number.match(/^(.*?)([¼½¾⅓⅔⅛⅜⅝⅞])$/u);
+    const value = fraction ? Number((fraction[1]||'').replace(/\s/g,''))+Number(fraction[2])/Number(fraction[3])
+      : unicode ? Number(unicode[1].replace(/\s/g,''))+fractions[unicode[2]]
+      : Number(number.replace(/\s/g,'').replace(',','.'));
+    return Number.isFinite(value) ? {value,tail:input.slice(match[0].length)} : null;
+  }
+
+  function readQuantityRange(text) {
+    const first = readQuantity(text);
+    const connector = first?.tail.match(/^(\s*[\p{L}.]*\s*)([-–—])(?=\s*(?:\d|[¼½¾⅓⅔⅛⅜⅝⅞]))/u);
+    if (!connector) return null;
+    const end = readQuantity(first.tail.slice(connector[0].length));
+    return end ? {start:{value:first.value,tail:connector[1]},separator:connector[2],end} : null;
+  }
+
+  const scaledNumber = new Intl.NumberFormat('pl',{maximumFractionDigits:6,useGrouping:false});
+  function scaleAmount(value,target,base) {
+    if (base<=0 || target===base) return value;
+    const factor = target/base;
+    const scaled = quantity => scaledNumber.format(quantity.value*factor)+quantity.tail;
+    const range = readQuantityRange(value);
+    if (range) return scaled(range.start)+range.separator+scaled(range.end);
+    const quantity = readQuantity(value);
+    return quantity ? scaled(quantity) : value;
+  }
+
   function normalizeQuantityUnit(unit = '') {
     return unit.trim().toLocaleLowerCase('pl').replace(/\.$/u,'');
   }
@@ -951,13 +1161,16 @@
   }
 
   function quantityBounds(amount,factorForUnit) {
-    const range = amount.match(/^\s*(\d+(?:[,.]\d+)?)\s*[-–—]\s*(\d+(?:[,.]\d+)?)(.*)$/);
-    const quantity = range ? readQuantity(range[2]+range[3]) : readQuantity(amount);
-    const factor = factorForUnit(quantity?.tail);
-    if (!factor || !Number.isFinite(quantity?.value)) return null;
-    const end = quantity.value*factor;
-    const start = range ? Number(range[1].replace(',','.'))*factor : end;
-    return [Math.min(start,end),Math.max(start,end)];
+    const range = readQuantityRange(amount);
+    const end = range?.end || readQuantity(amount);
+    const endFactor = factorForUnit(end?.tail.trim() || range?.start.tail);
+    if (!end || !endFactor) return null;
+    const max = end.value*endFactor;
+    if (!range) return [max,max];
+    const startFactor = range.start.tail.trim() ? factorForUnit(range.start.tail) : endFactor;
+    if (!startFactor) return null;
+    const min = range.start.value*startFactor;
+    return [Math.min(min,max),Math.max(min,max)];
   }
 
   function massInGrams(amount,name) {
@@ -983,6 +1196,22 @@
     });
     const total = summarizeBounds(bounds);
     return total ? {...total,estimated} : null;
+  }
+
+  function measuredStageMass(amounts,ingredients) {
+    return summarizeMass(amounts,ingredients) ||
+      (amounts.length ? {min:0,max:0,partial:true,estimated:false,unmeasured:true} : null);
+  }
+
+  function combineStageMass(added,carried) {
+    if (!added || !carried) return added || carried;
+    return {
+      min:added.min+carried.min,
+      max:added.max+carried.max,
+      partial:added.partial||carried.partial,
+      estimated:added.estimated||carried.estimated,
+      unmeasured:added.unmeasured&&carried.unmeasured
+    };
   }
 
   function updateBakerPercentages(section,stage,amounts,ratio,previous) {
@@ -1026,6 +1255,8 @@
     return {flour,water,missing,hasFlour};
   }
 
+  const roundedGrams = value=>Math.round(value*1000)/1000;
+
   function formatGrams(value) {
     return new Intl.NumberFormat('pl',{maximumFractionDigits:3}).format(value)+' g';
   }
@@ -1036,73 +1267,56 @@
     return (min===max ? min : min+'–'+max)+' '+unit;
   }
 
-  function updateStageMass(section,amounts,ingredients = []) {
+  function renderStageMass(section,mass,includesPrevious) {
     const output = section.querySelector('[data-stage-mass]');
-    const mass = summarizeMass(amounts,ingredients);
-    output.hidden = !mass;
+    output.hidden = !mass || mass.unmeasured;
     const notes = [];
+    if (includesPrevious) notes.push('z poprzednim etapem');
     if (mass?.estimated) notes.push('dla płynów przyjęto 1 ml ≈ 1 g');
     if (mass?.partial) notes.push('suma podanych mas');
     output.textContent = mass ? `Masa etapu: ${mass.estimated?'ok. ':''}${formatQuantityBounds(mass,'g')}${notes.length?' ('+notes.join(', ')+')':''}` : '';
-    return mass;
   }
 
-  function parseRecipeText(value){
-    let raw=String(value||'').replace(/\r/g,'\n');
-    raw=raw.replace(/\b(?:lista\s+)?składniki\s*:/giu,'\nSkładniki\n').replace(/\b(?:sposób\s+przygotowania|przygotowanie|wykonanie|instrukcja)\s*:/giu,'\nPrzygotowanie\n');
-    raw=raw.replace(/([^,\n])\s+(?=\d+(?:[,.]\d+)?\s*(?:g|kg|mg|ml|l|dag|łyżec?(?:zka|zki|zek)|łyż(?:ka|ki|ek)|szkl(?:anka|anki|anek)|szt\.?|opak\.?|ząbk(?:i|ów))\.?\s+)/giu,'$1\n');
-    const lines=raw.split(/\n+/).map(s=>s.replace(/^\s*[-•*·▪]+\s*/,'').trim().replace(/^[|/\\:;,. ]+|[| ]+$/g,'')).filter(s=>s&&!/^[\W_]{1,5}$/u.test(s)&&!/\b\d+\s*(?:tyg|tygodni|dni|godz)\b/iu.test(s));
-    const deaccent=s=>s.normalize('NFD').replace(/\p{Diacritic}/gu,'').toLocaleLowerCase('pl').replace(/[:.]+$/,'').trim();
-    const isIng=s=>/^(skladniki|lista skladnikow|potrzebne skladniki|ingredients)$/.test(deaccent(s));
-    const isMethod=s=>/^(sposob przygotowania|przygotowanie|wykonanie|instrukcja|method|directions)$/.test(deaccent(s));
-    const qty=/^(\d+(?:[,.]\d+)?|\d+\s*\/\s*\d+|\d+\s+\d+\s*\/\s*\d+)\s*((?:g|kg|mg|ml|l|dag|łyżeczka|łyżeczki|łyżeczek|łyżka|łyżki|łyżek|szklanka|szklanki|szklanek|szt\.?|opak\.?|ząbki|ząbków|puszka|puszki)?)[\s.·-]*([a-ząćęłńóśźż].*)$/iu;
-    const ingredient=s=>qty.test(s);
-    const isSentence=s=>s.length>100||/^(?:wszystkie|gotować|gotuj|wymieszaj|dodaj|wlej|wsyp|pokrój|połącz|zagnieć|przełóż|odstaw|ubij|piecz|podawaj|do wystudzonej|taką emulsję)\b/iu.test(s);
-    let body=lines.slice();
-    // Usuń początkowy tekst z interfejsu portalu społecznościowego, jeśli OCR go odczytał.
-    const titleIndex=body.findIndex(s=>/sos|ciasto|zupa|sałat|tort|chleb|kurczak|holendersk/i.test(s));
-    let name='Przepis ze zdjęcia';
-    if(titleIndex>=0){name=body[titleIndex].replace(/^[^a-ząćęłńóśźż]+/iu,'').trim();body.splice(0,titleIndex+1)}
-    else if(body.length){name=body.shift()}
-    const sections=[];let current=null,mode='ingredients',generalIngredients=[],generalInstructions=[];
-    const startSection=(sectionName)=>{current={name:sectionName,ingredients:[],instructions:''};sections.push(current)};
-    for(let i=0;i<body.length;i++){
-      let line=body[i].trim();if(!line)continue;
-      if(isIng(line)){mode='ingredients';if(!current||current.ingredients.length||current.instructions)startSection('Składniki');continue}
-      if(isMethod(line)){mode='method';if(!current||current.name==='Składniki')startSection('Przygotowanie');continue}
-      // Nazwy półproduktów są zwykle krótkimi nagłówkami; dwukropek jest częsty na zdjęciach.
-      const next=body[i+1]||'';
-      const heading=/^[\p{L}][\p{L}\s-]{1,38}:$/u.test(line)||(/^[\p{L}][\p{L}\s-]{1,32}$/u.test(line)&&ingredient(next));
-      if(heading){startSection(line.replace(/:$/,'').trim());mode='ingredients';continue}
-      const chunks=line.split(/[,;]\s*(?=\d+(?:[,.]\d+)?\s*(?:g|kg|ml|l|dag|łyż|szkl|szt|opak|ząbk)?\.?\s+)/iu).filter(Boolean);
-      let found=false;
-      for(const chunk of chunks){const m=chunk.match(qty);if(m){found=true;const target=current||{name:'Składniki',ingredients:[],instructions:''};if(!current){generalIngredients.push({amount:(m[1]+m[2]).trim(),name:m[3].trim()})}else current.ingredients.push({amount:(m[1]+m[2]).trim(),name:m[3].trim()})}}
-      if(!found&&!isSentence(line)&&ingredient(line)){const m=line.match(qty);if(m){if(current)current.ingredients.push({amount:(m[1]+m[2]).trim(),name:m[3].trim()});else generalIngredients.push({amount:(m[1]+m[2]).trim(),name:m[3].trim()});found=true}}
-      if(!found){if(current&&current.ingredients.length){current.instructions+=(current.instructions?'\n':'')+line}else if(mode==='method')generalInstructions.push(line);else if(!current)generalInstructions.push(line)}
+
+  function classifyOcrRows(text) {
+    const lines = String(text||'').split(/\r\n?|\n/u).map(line=>line.trim()).filter(Boolean);
+    const hasContent = line=>/[\p{L}\p{N}]/u.test(line) && !/^\d+\s*(?:tyg\.?|tygodni|dni|godz\.?)\s+temu$/iu.test(line);
+    const ingredientHeading = /^(?:składniki|lista składników|ingredients)\s*:?\s*$/iu;
+    const methodHeading = /^(?:przygotowanie|sposób przygotowania|wykonanie|instrukcja|directions|method)(?:\s*:\s*(.*))?$/iu;
+    const numberedStep = /^\d+\s*[.)]\s+\p{L}/u;
+    const amountPattern = /^(\d+\s+\d+\s*\/\s*\d+|\d+\s*\/\s*\d+|\d+(?:[,.]\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞])\s*((?:kg|mg|ml|dag|dkg|g|l|łyżeczk[ai]|łyżeczek|łyżk[ai]|łyżek|szklank[ai]|szklanek|szt\.?|opak\.?|ząbk[ió]w?|puszk[ai])(?=\s|$))?\s+(.+)$/iu;
+    const first = lines.findIndex(hasContent);
+    let mode = '';
+    const rows = [];
+    for (const [index,line] of lines.entries()) {
+      if (!hasContent(line)) continue;
+      if (ingredientHeading.test(line)) {
+        mode = 'ingredient';
+        continue;
+      }
+      const method = line.match(methodHeading);
+      if (method) {
+        mode = 'instruction';
+        if (method[1]) rows.push({type:mode,amount:'',value:method[1]});
+        continue;
+      }
+      if (numberedStep.test(line)) mode = 'instruction';
+      const amount = mode==='instruction' ? null : line.match(amountPattern);
+      if (index===first && !amount && mode!=='instruction') {
+        rows.push({type:'title',amount:'',value:line});
+      } else if (amount) {
+        rows.push({type:'ingredient',amount:[amount[1],amount[2]].filter(Boolean).join(' '),value:amount[3]});
+      } else if (mode!=='instruction' && (/^[\p{L}][\p{L}\s-]{1,38}:$/u.test(line) || ingredientHeading.test(lines[index+1]||''))) {
+        rows.push({type:'heading',amount:'',value:line.replace(/:$/u,'')});
+      } else {
+        rows.push({type:mode||'instruction',amount:'',value:line});
+      }
     }
-    if(generalIngredients.length)sections.unshift({name:'Składniki',ingredients:generalIngredients,instructions:generalInstructions.join('\n')});
-    const cleaned=sections.filter(s=>s.ingredients.length||s.instructions.trim());
-    if(!cleaned.length)cleaned.push({name:'Składniki',ingredients:[{amount:'',name:''}],instructions:body.join('\n')});
-    const desc='';
-    return{name,description:desc,servings:1,sections:cleaned}
+    return rows;
   }
+
   function reviewOcrText(text,book,cat,sourcePhoto=''){
-    const parseAmount=line=>{const m=String(line||'').trim().match(/^(\d+(?:[,.]\d+)?(?:\s+\d+\/\d+)?|\d+\s*\/\s*\d+)\s*((?:g|kg|mg|ml|l|dag|łyżeczka|łyżeczki|łyżeczek|łyżka|łyżki|łyżek|szklanka|szklanki|szklanek|szt\.?|opak\.?|ząbki|ząbków|puszka|puszki)?)[\s.·-]+(.+)$/iu);return m?{amount:(m[1]+m[2]).trim(),name:m[3].trim()}:{amount:'',name:String(line||'').trim()}};
-    const isJunk=line=>/^\W*$/u.test(line)||line.length<2||/\b\d+\s*(?:tyg|tygodni|dni|godz)\b/iu.test(line);
-    let lines=String(text||'').replace(/\r/g,'').split(/\n+/).flatMap(line=>line.trim().split(/\s+(?=\d+(?:[,.]\d+)?\s*(?:g|kg|mg|ml|l|dag|łyż|szkl|szt|opak|ząbk)\.?\s+[a-ząćęłńóśźż])/iu)).map(x=>x.trim().replace(/^[\/|\\:;,. ]+|[| ]+$/g,'').trim()).filter(Boolean);
-    const first=lines.findIndex(line=>!isJunk(line));
-    const rows=lines.map((line,i)=>{
-      const qty=parseAmount(line);let type='instruction';
-      if(isJunk(line))type='ignore';
-      else if(i===first)type='title';
-      else if(/^(?:składniki|lista składników|ingredients)\s*:?\s*$/iu.test(line))type='ignore';
-      else if(/^(?:przygotowanie|sposób przygotowania|wykonanie)\s*:?\s*$/iu.test(line))type='instruction';
-      else if(/^\d+(?:[,.]\d+)?(?:\s*(?:g|kg|mg|ml|l|dag|łyż|szkl|szt|opak|ząbk))?\.?\s+.+/iu.test(line))type='ingredient';
-      else if(/^[\p{L}][\p{L}\s-]{1,38}:$/u.test(line))type='heading';
-      else if(i+1<lines.length&&/^\d+(?:[,.]\d+)?\s*(?:g|kg|ml|l|dag|łyż|szkl|szt|opak|ząbk)\.?/iu.test(lines[i+1]))type='heading';
-      const amount=type==='ingredient'?qty:{amount:'',name:line};
-      return{type,amount:amount.amount,value:amount.name};
-    });
+    const rows = classifyOcrRows(text);
     const rowMarkup=row=>'<div class="ocr-edit-row" data-ocr-row style="display:grid;grid-template-columns:minmax(130px,.8fr) minmax(90px,.55fr) minmax(180px,2fr);gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)"><select data-ocr-type aria-label="Rodzaj tekstu"><option value="title" '+(row.type==='title'?'selected':'')+'>Tytuł</option><option value="heading" '+(row.type==='heading'?'selected':'')+'>Nazwa części</option><option value="ingredient" '+(row.type==='ingredient'?'selected':'')+'>Składnik</option><option value="description" '+(row.type==='description'?'selected':'')+'>Opis</option><option value="instruction" '+(row.type==='instruction'?'selected':'')+'>Przygotowanie</option><option value="ignore" '+(row.type==='ignore'?'selected':'')+'>Pomiń</option></select><input data-ocr-amount aria-label="Ilość" placeholder="Ilość" value="'+esc(row.amount||'')+'" style="'+(row.type==='ingredient'?'':'display:none')+'"><input data-ocr-value aria-label="Rozpoznany tekst" value="'+esc(row.value||'')+'" placeholder="Popraw rozpoznany tekst"></div>';
     const content='<form id="edit-form" class="form"><p class="scan-help">Popraw tekst i wybierz dla każdej linii, gdzie ma trafić. Składniki mają osobne pola na ilość i nazwę. Możesz też dodać brakującą linię.</p><div id="ocr-rows">'+rows.map(rowMarkup).join('')+'</div><button type="button" class="add-link" id="ocr-add-row">＋ Dodaj linię</button><div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button><button class="primary-button">Utwórz przepis z wybranych pól</button></div></form>';
     showForm('Popraw tekst ze zdjęcia',content,(fd,form)=>{
@@ -1121,13 +1335,114 @@
     root.addEventListener('change',e=>{if(e.target.matches('[data-ocr-type]')){const amount=e.target.closest('[data-ocr-row]').querySelector('[data-ocr-amount]');amount.style.display=e.target.value==='ingredient'?'':'none'}});
     document.querySelector('#ocr-add-row').addEventListener('click',()=>{root.insertAdjacentHTML('beforeend',rowMarkup({type:'ingredient',amount:'',value:''}));root.lastElementChild.querySelector('[data-ocr-type]').focus()})
   }
-  async function scanPhoto(file,book,cat){const imageUrl=URL.createObjectURL(file);showForm('Czytam zdjęcie',`<img class="scan-preview" src="${imageUrl}" alt="Wybrane zdjęcie przepisu"><div class="progress-track"><span style="width:30%"></span></div><p class="scan-status">Rozpoznaję tekst na urządzeniu… Przy pierwszym użyciu może to chwilę potrwać.</p><p class="scan-help" style="text-align:center">Najlepszy efekt dają wyraźne, równo ułożone zdjęcia drukowanego przepisu.</p>`);let worker;try{if(!window.Tesseract)throw new Error('Brak plików OCR');worker=await Tesseract.createWorker('pol',1,{workerPath:new URL('./worker.min.js',location.href).href,corePath:new URL('./tesseract-core-lstm.wasm.js',location.href).href,langPath:new URL('./',location.href).href,gzip:true});const result=await worker.recognize(file);const text=result.data.text||'';await worker.terminate();worker=null;URL.revokeObjectURL(imageUrl);if(!text.trim()){closeForm();toast('Nie udało się odczytać tekstu. Spróbuj wyraźniejszego zdjęcia.');return}const sourcePhoto=await compressRecipePhoto(file);reviewOcrText(text,book,cat,sourcePhoto)}catch(error){if(worker)try{await worker.terminate()}catch{}URL.revokeObjectURL(imageUrl);closeForm();toast('Nie udało się odczytać zdjęcia. Otwórz aplikację w przeglądarce przez plik startowy i spróbuj ponownie.')}}
+  let ocrLibraryPromise;
+
+  function loadOcrLibrary() {
+    if (window.Tesseract?.createWorker) return Promise.resolve(window.Tesseract);
+    if (!ocrLibraryPromise) {
+      ocrLibraryPromise = new Promise((resolve,reject)=>{
+        const script = document.createElement('script');
+        script.src = new URL('./tesseract.min.js',location.href).href;
+        script.onload = ()=>{
+          if (window.Tesseract?.createWorker) resolve(window.Tesseract);
+          else {
+            script.remove();
+            reject(new Error('OCR library unavailable'));
+          }
+        };
+        script.onerror = ()=>{
+          script.remove();
+          reject(new Error('OCR library loading failed'));
+        };
+        document.head.append(script);
+      }).catch(error=>{
+        ocrLibraryPromise = null;
+        throw error;
+      });
+    }
+    return ocrLibraryPromise;
+  }
+
+  async function scanPhoto(file,book,cat) {
+    let imageUrl = URL.createObjectURL(file);
+    showForm('Czytam zdjęcie',`<img class="scan-preview" src="${imageUrl}" alt="Wybrane zdjęcie przepisu">
+      <div class="progress-track" role="progressbar" aria-label="Rozpoznawanie zdjęcia" aria-valuenow="0"><span style="width:0"></span></div>
+      <p class="scan-status" role="status">Przygotowuję odczytywanie zdjęcia…</p>
+      <p class="scan-help">Najlepszy efekt daje ostre, równo ułożone zdjęcie drukowanego tekstu.</p>`);
+    const progress = document.querySelector('#overlay-root [role=progressbar]');
+    const status = document.querySelector('#overlay-root .scan-status');
+    let cancelled = false;
+    let worker;
+    function releaseImage() {
+      if (imageUrl) URL.revokeObjectURL(imageUrl);
+      imageUrl = null;
+    }
+    async function stopWorker() {
+      const active = worker;
+      worker = null;
+      if (active) {
+        try { await active.terminate(); } catch {}
+      }
+    }
+    formCleanup = ()=>{
+      cancelled = true;
+      releaseImage();
+      void stopWorker();
+    };
+    try {
+      const library = await loadOcrLibrary();
+      if (cancelled) return;
+      worker = await library.createWorker('pol',1,{
+        workerPath:new URL('./worker.min.js',location.href).href,
+        corePath:new URL('./tesseract-core-lstm.wasm.js',location.href).href,
+        langPath:new URL('./',location.href).href,
+        gzip:true,
+        logger:update=>{
+          if (cancelled || update.status!=='recognizing text') return;
+          const percent = Math.round(update.progress*100);
+          progress.setAttribute('aria-valuenow',String(percent));
+          progress.firstElementChild.style.width=percent+'%';
+        }
+      });
+      if (cancelled) return;
+      status.textContent = 'Rozpoznaję tekst na zdjęciu…';
+      const result = await worker.recognize(file);
+      await stopWorker();
+      if (cancelled) return;
+      const text = result.data.text||'';
+      if (!text.trim()) {
+        closeForm();
+        toast('Nie udało się odczytać tekstu. Spróbuj wyraźniejszego zdjęcia.');
+        return;
+      }
+      status.textContent = 'Przygotowuję podgląd…';
+      const sourcePhoto = await compressRecipePhoto(file);
+      if (!cancelled) reviewOcrText(text,book,cat,sourcePhoto);
+    } catch {
+      if (!cancelled) {
+        closeForm();
+        toast('Nie udało się odczytać zdjęcia. Spróbuj ponownie lub wybierz inne zdjęcie.');
+      }
+    } finally {
+      releaseImage();
+      await stopWorker();
+    }
+  }
   let displayedDepth = 0;
   let useAppBackStack = false;
   const appBackStack = [];
 
   function navigationState(depth) {
-    return {cookbook:true,depth,route,search,homeSearch,scroll:window.scrollY};
+    return {cookbook:true,depth,route,search,homeSearch,scroll:formPageScroll??window.scrollY};
+  }
+
+  function rememberCurrentView() {
+    const current = navigationState(displayedDepth);
+    if (useAppBackStack) {
+      current.standalone = true;
+      current.backStack = appBackStack.slice(-64);
+    }
+    history.replaceState(current,'');
   }
 
   function navigate(value) {
@@ -1151,7 +1466,10 @@
     if (type==='home' || type==='category') search='';
     render();
     window.scrollTo(0,0);
-    if (useAppBackStack) return;
+    if (useAppBackStack) {
+      rememberCurrentView();
+      return;
+    }
     if (changed) {
       displayedDepth = depth+1;
       history.pushState(navigationState(displayedDepth),'');
@@ -1159,11 +1477,15 @@
     else history.replaceState(navigationState(depth),'');
   }
 
+  function restoreView(previous) {
+    route = previous.route;
+    search = previous.search || '';
+    homeSearch = previous.homeSearch || '';
+  }
+
   function showPreviousView(previous) {
     closeForm();
-    route = previous.route;
-    search = previous.search;
-    homeSearch = previous.homeSearch;
+    restoreView(previous);
     render();
     window.scrollTo(0,previous.scroll);
   }
@@ -1172,8 +1494,17 @@
     history.scrollRestoration = 'manual';
     const standalone = navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
     useAppBackStack = appleTouchDevice && standalone;
+    const previous = history.state;
+    if (previous?.cookbook && previous.route && Boolean(previous.standalone)===useAppBackStack) {
+      restoreView(previous);
+      displayedDepth = previous.depth;
+      if (useAppBackStack && Array.isArray(previous.backStack)) appBackStack.push(...previous.backStack);
+      requestAnimationFrame(()=>window.scrollTo(0,previous.scroll));
+    } else {
+      rememberCurrentView();
+    }
+    window.addEventListener('pagehide',rememberCurrentView);
     if (!useAppBackStack) {
-      history.replaceState(navigationState(0),'');
       window.addEventListener('popstate',event=>{
         const previous = event.state;
         if (!previous?.cookbook || previous.depth===displayedDepth) return;
@@ -1225,6 +1556,7 @@
       const y = Math.abs(touch.clientY-gesture.y);
       if (x>=65 && x>y*1.5 && gesture.depth===appBackStack.length) {
         showPreviousView(appBackStack.pop());
+        rememberCurrentView();
       }
     },{passive:true});
     document.addEventListener('touchcancel',()=>{edgeTouch=undefined;},{passive:true});
@@ -1233,6 +1565,7 @@
   function toast(msg){const el=document.querySelector('#toast-root');el.innerHTML=`<div class="notice">${esc(msg)}</div>`;setTimeout(()=>el.innerHTML='',2600)}
   let formCleanup;
   let formPageScroll = null;
+  let formOpener;
   let viewportRestoreTimer;
   const viewportMeta = document.querySelector('meta[name=viewport]');
   const defaultViewport = viewportMeta.content;
@@ -1302,8 +1635,11 @@
   function showForm(title,content,onSave) {
     formCleanup?.();
     formCleanup = undefined;
+    const shell = document.querySelector('.shell');
     if (formPageScroll === null) {
+      formOpener = shell.contains(document.activeElement) ? document.activeElement : null;
       formPageScroll = window.scrollY;
+      shell.inert = true;
       document.body.style.setProperty('--form-page-top', -formPageScroll + 'px');
       document.body.classList.add('form-open');
       if (appleTouchDevice) lockEditingViewport();
@@ -1312,6 +1648,29 @@
     }
     const root = document.querySelector('#overlay-root');
     root.innerHTML = `<div class="form-overlay"><section class="dialog" role="dialog" aria-modal="true" aria-label="${esc(title)}"><header class="dialog-head"><div><h2>${esc(title)}</h2><p class="dialog-intro">Zmiany zapisują się na tym urządzeniu.</p></div><button type="button" class="icon-button" data-close aria-label="Zamknij">✕</button></header>${content}</section></div>`;
+    const dialog = root.querySelector('.dialog');
+    // Keep the software keyboard closed until the person selects a field.
+    dialog.querySelectorAll('[autofocus]').forEach(field=>field.removeAttribute('autofocus'));
+    dialog.querySelector('[data-close]').focus({preventScroll:true});
+    dialog.addEventListener('keydown',event=>{
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        event.preventDefault();
+        closeForm();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const controls = [...dialog.querySelectorAll('button, input, select, textarea, a[href], summary, [tabindex]')]
+        .filter(control=>control.tabIndex>=0 && !control.matches(':disabled') && control.getClientRects().length);
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (event.shiftKey && document.activeElement===first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement===last) {
+        event.preventDefault();
+        first.focus();
+      }
+    });
     fitFormToViewport();
     root.firstElementChild.addEventListener('click',event => {
       if (event.target === event.currentTarget || event.target.closest('button[data-close]')) closeForm();
@@ -1335,8 +1694,13 @@
     window.visualViewport?.removeEventListener('scroll', fitFormToViewport);
     document.body.classList.remove('form-open');
     document.body.style.removeProperty('--form-page-top');
+    document.querySelector('.shell').inert = false;
     window.scrollTo(0,formPageScroll);
     formPageScroll = null;
+    if (formOpener?.isConnected && !(appleTouchDevice && isInlineEditor(formOpener))) {
+      formOpener.focus({preventScroll:true});
+    }
+    formOpener = null;
     if (appleTouchDevice) restoreEditingViewport();
   }
 
@@ -1453,8 +1817,52 @@
   function categoryForm(book,category=null){
     const existing=Boolean(category);
     const content='<form id="edit-form" class="form"><div class="field"><label for="item-name">Nazwa działu</label><input id="item-name" name="name" required maxlength="70" value="'+esc(category?.name||'')+'" placeholder="np. Sosy"></div><div class="field"><label for="category-photo">Zdjęcie działu</label><input id="category-photo" type="file" accept="image/*"><span class="scan-help">Wybierz zdjęcie z galerii albo zrób je aparatem. Pojawi się na kafelku działu.</span><div class="photo-preview-box" id="category-photo-preview">'+(category?.photo?'<img class="recipe-photo-preview" src="'+esc(category.photo)+'" alt="Podgląd zdjęcia działu">':'<span class="scan-help">Nie dodano jeszcze zdjęcia.</span>')+'</div>'+(category?.photo?'<label><input type="checkbox" name="removePhoto"> Usuń obecne zdjęcie przy zapisie</label>':'')+'</div>'+tileStyleFields(category)+(existing?'<div><button type="button" class="danger-button" id="delete-category">Usuń dział</button></div>':'')+'<div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button><button class="primary-button">'+(existing?'Zapisz zmiany':'Dodaj dział')+'</button></div></form>';
-    showForm(existing?'Edytuj dział':'Nowy dział',content,async(fd,form)=>{const name=String(fd.get('name')).trim();if(!name)return;let photo=category?.photo||'';const file=form.querySelector('#category-photo').files?.[0];if(fd.get('removePhoto')==='on')photo='';else if(file){try{photo=await compressRecipePhoto(file)}catch(err){toast('Nie udało się wczytać zdjęcia. Spróbuj wybrać je ponownie.');return}}if(existing){category.name=name;category.photo=photo;category.tileTitleSize=Number(fd.get('tileTitleSize'))||26;category.tileTitleWeight=Number(fd.get('tileTitleWeight'))||700}else book.categories.push({id:id(),name,photo,tileTitleSize:Number(fd.get('tileTitleSize'))||26,tileTitleWeight:Number(fd.get('tileTitleWeight'))||700,recipes:[]});save();closeForm();render();toast(existing?'Dział zaktualizowany':'Dział dodany')});
-    const input=document.querySelector('#category-photo'),preview=document.querySelector('#category-photo-preview');input.addEventListener('change',()=>{const file=input.files?.[0];if(!file)return;const url=URL.createObjectURL(file);preview.innerHTML='<img class="recipe-photo-preview" src="'+url+'" alt="Podgląd wybranego zdjęcia">';const remove=document.querySelector('#edit-form [name=removePhoto]');if(remove)remove.checked=false})
+    showForm(existing?'Edytuj dział':'Nowy dział',content,async(data,form)=>{
+      const name = String(data.get('name')).trim();
+      const submit = form.querySelector('.form-actions .primary-button');
+      if (!name || submit.disabled) return;
+      submit.disabled = true;
+      let photo = category?.photo||'';
+      const file = form.querySelector('#category-photo').files[0];
+      try {
+        if (data.get('removePhoto')==='on') photo='';
+        else if (file) photo=await compressRecipePhoto(file);
+        if (!form.isConnected) return;
+        const updated = {
+          ...category,name,photo,id:category?.id||id(),recipes:category?.recipes||[],
+          tileTitleSize:Number(data.get('tileTitleSize'))||26,tileTitleWeight:Number(data.get('tileTitleWeight'))||700
+        };
+        const previous = book.categories;
+        book.categories = existing ? previous.map(entry=>entry===category?updated:entry) : [...previous,updated];
+        try {
+          save();
+        } catch {
+          book.categories = previous;
+          toast('Nie udało się zapisać działu.');
+          return;
+        }
+        closeForm();
+        render();
+        toast(existing?'Dział zaktualizowany':'Dział dodany');
+      } catch {
+        if (form.isConnected) toast('Nie udało się wczytać zdjęcia. Spróbuj wybrać je ponownie.');
+      } finally {
+        submit.disabled = false;
+      }
+    });
+    const input = document.querySelector('#category-photo');
+    const preview = document.querySelector('#category-photo-preview');
+    let previewUrl;
+    input.addEventListener('change',()=>{
+      const file = input.files[0];
+      if (!file) return;
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      previewUrl = URL.createObjectURL(file);
+      preview.innerHTML = `<img class="recipe-photo-preview" src="${previewUrl}" alt="Podgląd wybranego zdjęcia">`;
+      const remove = document.querySelector('#edit-form [name=removePhoto]');
+      if (remove) remove.checked=false;
+    });
+    formCleanup = ()=>{if(previewUrl) URL.revokeObjectURL(previewUrl);};
     document.querySelector('#delete-category')?.addEventListener('click',()=>{
       const count = category.recipes.length;
       const warning = count ? ` Wraz z działem usuniesz wszystkie jego przepisy (liczba: ${count}).` : '';
@@ -1494,7 +1902,7 @@
         </div></details><p class="stage-mass" data-stage-mass hidden></p>
       <div class="baker-starter field-row" data-baker-starter ${baker?'':'hidden'}>
         <div class="baker-carry"><label><input type="checkbox" data-baker-continue ${s.continuesPreviousStage?'checked':''}> Kontynuuj poprzedni etap</label>
-          <div class="scan-help">Uwzględnia całą mąkę i wodę z poprzedniego etapu w hydracji. Użyj, gdy dodajesz składniki do tego samego ciasta.</div></div>
+          <div class="scan-help">Uwzględnia ciasto z poprzedniego etapu w masie i hydracji. W składnikach etapu wpisz tylko to, co dodajesz.</div></div>
         <label>Mąka w użytym zaczynie (g)<input type="number" min="0" step="any" inputmode="decimal" data-starter-flour value="${esc(s.starterFlourGrams ?? '')}"></label>
         <label>Woda w użytym zaczynie (g)<input type="number" min="0" step="any" inputmode="decimal" data-starter-water value="${esc(s.starterWaterGrams ?? '')}"></label>
       </div></div><div class="field"><label>Sposób przygotowania</label><textarea data-s-instructions placeholder="Opisz, co zrobić w tym etapie…">${esc(s.instructions||'')}</textarea></div>
@@ -1514,9 +1922,7 @@
     const method = /(?:^|[\s.!?:;,])(?:sposób przygotowania|przygotowanie|wykonanie)(?=[\s:.,;]|$)\s*[:.,;]?\s*/iu.exec(text);
     const beforeMethod = method ? text.slice(0,method.index) : text;
     const ingredientHeading = /(?:^|[\s.!?:;,])(?:lista składników|składniki)(?=[\s:.,;]|$)\s*[:.,;]?\s*/iu.exec(beforeMethod);
-    const firstQuantity = numbered && !ingredientHeading
-      ? /(?:^|[\s:;,])(?=\d+(?:[,.]\d+)?\s*(?:g|gram\p{L}*|kg|kilogram\p{L}*|mg|ml|mililitr\p{L}*|l|litr\p{L}*|dag|dkg|łyż\p{L}*|szklan\p{L}*|szt\.?|sztuk\p{L}*)(?=\s))/iu.exec(beforeMethod)
-      : null;
+    const firstQuantity = numbered && !ingredientHeading ? firstMeasuredIngredient.exec(beforeMethod) : null;
     const start = ingredientHeading || firstQuantity;
     const nameText = (start ? beforeMethod.slice(0,start.index) : beforeMethod)
       .replace(/^[\s:.,;–—-]+|[\s:.,;–—-]+$/gu,'').trim();
@@ -1532,11 +1938,12 @@
     const markers = [...source.matchAll(/(?<![\p{L}\d])etap\s+(?:nr\.?\s+)?(?:\d+|pierwszy|drugi|trzeci|czwarty|piąty|piaty|szósty|szosty|siódmy|siodmy|ósmy|osmy|dziewiąty|dziewiaty|dziesiąty|dziesiaty|jeden|dwa|trzy|cztery|pięć)(?=[\s:.,;–—-]|$)[\s:.,;–—-]*/giu)];
     const title = value => value.trim().replace(/^tytuł(?: przepisu)?[\s:.,;]+/iu,'')
       .replace(/[\s:.,;]+$/u,'').slice(0,90).trim();
-    if (markers.length) {
-      const name = title(source.slice(0,markers[0].index)) || 'Podyktowany przepis';
-      const sections = markers.map((marker,i)=>parseDictatedStage(
-        source.slice(marker.index+marker[0].length,markers[i+1]?.index),`Etap ${i+1}`,true));
-      if (sections.some(section=>!section)) return null;
+    const stageMarkers = markers.filter((marker,i)=>parseDictatedStage(
+      source.slice(marker.index+marker[0].length,markers[i+1]?.index),'',true));
+    if (stageMarkers.length && stageMarkers[0]===markers[0]) {
+      const name = title(source.slice(0,stageMarkers[0].index)) || 'Podyktowany przepis';
+      const sections = stageMarkers.map((marker,i)=>parseDictatedStage(
+        source.slice(marker.index+marker[0].length,stageMarkers[i+1]?.index),`Etap ${i+1}`,true));
       return {name,servings:1,sections};
     }
     const stage = parseDictatedStage(source,'',false);
@@ -1565,77 +1972,129 @@
     });
   }
 
+  const ingredientUnits = [
+    ['mg','mg|miligram(?:a|y|ów)?'], ['g','g|gram(?:a|y|ów)?'],
+    ['dag','dag|dkg|dekagram(?:a|y|ów)?'], ['kg','kg|kilogram(?:a|y|ów)?'],
+    ['ml','ml|mililitr(?:a|y|ów)?'], ['l','l|litr(?:a|y|ów)?'], ['dl','dl'], ['cl','cl'],
+    ['szt.','szt|sztuk(?:a|i|ę)?'], ['łyżka','łyż(?:ka|ki|kę|ek)'],
+    ['łyżeczka','łyżecz(?:ka|ki|kę|ek)'], ['szklanka','szkl(?:anka|anki|ankę|anek)']
+  ].map(([unit,pattern])=>({unit,pattern,accepts:new RegExp('^(?:'+pattern+')$','iu')}));
+  const unitPattern = ingredientUnits.map(entry=>entry.pattern).join('|');
+  const recipeAmount = String.raw`${quantityNumber}(?:\s*[-–—]\s*${quantityNumber})?`;
+  const measuredIngredient = String.raw`${recipeAmount}\s*(?:${unitPattern})\.?(?=\s|$)`;
+  const firstMeasuredIngredient = new RegExp(String.raw`(?:^|[\s:;,])(?=${measuredIngredient})`,'iu');
+  const unitStart = new RegExp(String.raw`^(?:${unitPattern})\.?(?=\s|$)`,'iu');
+  const lastMeasured = new RegExp(String.raw`^(\p{L}.*?)\s+(${recipeAmount})\s*((?:${unitPattern})\.?)$`,'iu');
+  const basicNumbers = {pół:'0,5',jeden:'1',jedna:'1',jedną:'1',jedno:'1',dwa:'2',dwie:'2',trzy:'3',cztery:'4',pięć:'5',sześć:'6',siedem:'7',osiem:'8',dziewięć:'9',dziesięć:'10'};
+
+  function canonicalIngredientUnit(unit) {
+    const value = normalizeQuantityUnit(unit);
+    return ingredientUnits.find(entry=>entry.accepts.test(value))?.unit || value;
+  }
+
+  function isLeadingQuantity(line) {
+    const word = /^\p{L}+(?=\s)/u.exec(line)?.[0].toLocaleLowerCase('pl');
+    return Boolean(readQuantity(line) || Object.hasOwn(basicNumbers,word));
+  }
+
+  function splitDictatedIngredientLine(line) {
+    const measures = [...line.matchAll(new RegExp(String.raw`(?<![\p{L}\p{N},./])${measuredIngredient}`,'giu'))];
+    if (isLeadingQuantity(line)) {
+      const starts = [0,...measures.filter(measure=>measure.index>0).map(measure=>measure.index)];
+      return starts.map((start,i)=>line.slice(start,starts[i+1]).replace(/\s+i\s*$/iu,''));
+    }
+    const ends = [0,...measures.map(measure=>measure.index+measure[0].length),line.length];
+    return ends.slice(1).map((end,i)=>line.slice(ends[i],end));
+  }
+
   function parseDictatedIngredients(text,{split=true}={}) {
-    const units = [
-      ['mg','mg|miligram(?:a|y|ów)?'], ['g','g|gram(?:a|y|ów)?'],
-      ['dag','dag|dkg|dekagram(?:a|y|ów)?'], ['kg','kg|kilogram(?:a|y|ów)?'],
-      ['ml','ml|mililitr(?:a|y|ów)?'], ['l','l|litr(?:a|y|ów)?'],
-      ['szt.','szt\\.?|sztuk(?:a|i|ę)?'], ['łyżka','łyż(?:ka|ki|kę|ek)'],
-      ['łyżeczka','łyżecz(?:ka|ki|kę|ek)'], ['szklanka','szkl(?:anka|anki|ankę|anek)']
-    ];
-    const unitPattern = units.map(([,pattern])=>pattern).join('|');
-    const unitStart = new RegExp(String.raw`^(?:${unitPattern})(?=\s|$)`,'iu');
-    const nextMeasured = new RegExp(String.raw`\s+(?:i\s+)?(?=\d+(?:[,.]\d+)?\s*(?:${unitPattern})(?=\s|$))`,'giu');
-    const lastMeasured = new RegExp(String.raw`^(\p{L}.*?)\s+(\d+\s+\d+/\d+|\d+/\d+|\d+(?:[,.]\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞])\s*(${unitPattern})$`,'iu');
-    const canonicalUnit = unit => units.find(([,pattern])=>new RegExp('^(?:'+pattern+')$','iu').test(unit))?.[0] || unit;
-    const basicNumbers = {pół:'0,5',jeden:'1',jedna:'1',jedną:'1',jedno:'1',dwa:'2',dwie:'2',trzy:'3',cztery:'4',pięć:'5',sześć:'6',siedem:'7',osiem:'8',dziewięć:'9',dziesięć:'10'};
-    return (split ? text.split(/\r?\n|;|(?<!\d),|,(?!\d)/u) : [text])
-      .map(line=>line.trim().replace(/^i\s+/iu,'').replace(/^[•–-]\s*/u,'').replace(/[.!?]+$/u,'').trim())
-      .flatMap(line=>!split || lastMeasured.test(line) ? [line] : line.split(nextMeasured))
-      .map(chunk=>chunk.trim())
+    const lines = split ? text.replace(/\bprzecinek\b/giu,',').replace(/\bnowy wiersz\b/giu,'\n')
+      .split(/\r?\n|;|(?<!\d),|,(?!\d)/u) : [text];
+    return lines.map(line=>line.trim().replace(/^[•–-]\s*/u,''))
+      .flatMap(line=>split ? splitDictatedIngredientLine(line) : [line])
+      .map(chunk=>chunk.trim().replace(/^i\s+/iu,'').replace(/[.!?]+$/u,'').trim())
       .filter(Boolean)
       .map(chunk=>{
         const reversed = chunk.match(lastMeasured);
         if (reversed) {
           const [,name,number,unit] = reversed;
-          return {amount:number+' '+canonicalUnit(unit),name:name.trim().replace(/\s*[:–—-]$/u,'')};
+          return {amount:number+' '+canonicalIngredientUnit(unit),name:name.trim().replace(/\s*[:–—-]$/u,'')};
         }
         const first = chunk.match(/^([\p{L}]+)\s+/u);
         const word = first?.[1].toLocaleLowerCase('pl');
         const normalized = first && Object.hasOwn(basicNumbers,word) ? basicNumbers[word]+' '+chunk.slice(first[0].length) : chunk;
-        const quantity = readQuantity(normalized);
-        if (!quantity || !Number.isFinite(quantity.value)) return {amount:'',name:chunk};
+        const quantity = readQuantityRange(normalized)?.end || readQuantity(normalized);
+        if (!quantity) return {amount:'',name:chunk};
         const number = normalized.slice(0,normalized.length-quantity.tail.length).trim();
         const tail = quantity.tail.trim();
         const unit = tail.match(unitStart)?.[0];
         const name = unit ? tail.slice(unit.length).trim() : tail;
         if (!name) return {amount:'',name:chunk};
-        return {amount:unit ? number+' '+canonicalUnit(unit) : number,name};
+        return {amount:unit ? number+' '+canonicalIngredientUnit(unit) : number,name};
       });
   }
 
   const RECIPE_IMPORT_ENDPOINT_KEY = 'moja-kuchnia-recipe-import-endpoint';
 
-  function recipeHttpsUrl(value) {
+  function recipeWebUrl(value,{httpsOnly=false}={}) {
     try {
       const url = new URL(value);
-      if (url.protocol==='https:' && !url.username && !url.password) return url;
+      if ((url.protocol==='https:' || (!httpsOnly && url.protocol==='http:')) && !url.username && !url.password) return url;
     } catch {}
     return null;
   }
 
   function recipeSourceMarkup(value) {
-    const source = recipeHttpsUrl(value);
+    const source = recipeWebUrl(value);
     return source ? `<p class="scan-help">Źródło · <a href="${esc(source.href)}" target="_blank" rel="noopener noreferrer">${esc(source.hostname)}</a></p>` : '';
   }
 
-  async function fetchRecipePage(url,signal) {
+  async function fetchRecipePage(url,signal,viaEndpoint) {
     const response = await fetch(url,{signal,credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer'});
-    if (!response.ok) throw new Error('HTTP '+response.status);
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
+    if (!response.ok) {
+      const error = new Error('HTTP '+response.status);
+      error.status = response.status;
+      throw error;
+    }
+    const responseUrl = viaEndpoint ? response.headers.get('X-Recipe-URL') : response.url;
+    const reader = response.body?.getReader();
+    if (!reader) return {html:'',responseUrl};
+    const charset = response.headers.get('Content-Type')?.match(/charset\s*=\s*["']?([^;\s"']+)/i)?.[1];
+    let decoder;
+    try { decoder = new TextDecoder(charset); } catch { decoder = new TextDecoder(); }
     let size = 0;
     let html = '';
     try {
       while (true) {
         const {done,value} = await reader.read();
-        if (done) return html+decoder.decode();
+        if (done) return {html:html+decoder.decode(),responseUrl};
         size += value.byteLength;
-        if (size>2_500_000) throw new Error('Page too large');
+        if (size>2_500_000) {
+          const error = new Error('Page too large');
+          error.status = 413;
+          throw error;
+        }
         html += decoder.decode(value,{stream:true});
       }
     } finally {
       reader.cancel().catch(()=>{});
+    }
+  }
+
+  function recipeImportMessage(error,endpoint,timeout) {
+    if (timeout || error.status===504) return 'Strona z przepisem odpowiada zbyt długo. Spróbuj ponownie później.';
+    if (navigator.onLine===false) return 'Połącz się z internetem, aby pobrać przepis.';
+    switch (error.status) {
+      case 400: return 'Adres został odrzucony. Wklej pełny adres strony z przepisem.';
+      case 401:
+      case 403: return endpoint ? 'Usługa importu odmówiła dostępu. Sprawdź jej adres i konfigurację.' : 'Strona odmówiła dostępu. Spróbuj użyć usługi importu.';
+      case 404: return endpoint ? 'Brak usługi pod zapisanym adresem. Sprawdź ustawienia importu.' : 'Strony nie znaleziono. Sprawdź adres przepisu.';
+      case 413: return 'Strona jest za duża do automatycznego odczytu.';
+      case 415: return 'Adres prowadzi do innego pliku niż strona z przepisem.';
+      case 429: return 'Przekroczono limit zapytań. Spróbuj ponownie za chwilę.';
+      case 502: return 'Usługa importu nie mogła pobrać strony z przepisem. Sprawdź adres i spróbuj ponownie.';
+      default: return endpoint ? 'Nie udało się połączyć z usługą importu. Sprawdź jej adres.'
+        : 'Przeglądarka nie mogła pobrać strony. Spróbuj użyć usługi importu.';
     }
   }
 
@@ -1660,59 +2119,55 @@
     try { importer = localStorage.getItem(RECIPE_IMPORT_ENDPOINT_KEY)||''; } catch {}
     showForm('Dodaj przepis z linku',`<form id="edit-form" class="form">
       <div class="field"><label for="recipe-import-url">Adres przepisu</label>
-        <input id="recipe-import-url" name="link" type="url" required placeholder="https://aniagotuje.pl/przepis/…"></div>
+        <input id="recipe-import-url" name="link" type="url" required placeholder="https://blog-kulinarny.pl/przepis/…"></div>
       <p class="scan-help">Przepis trafi do działu „${esc(category.name)}” po sprawdzeniu i zapisaniu szkicu.</p>
       <details>
-        <summary>Ustawienia importu z AniaGotuje</summary>
+        <summary>Ustawienia importu</summary>
         <div class="field"><label for="recipe-import-endpoint">Adres usługi importu</label>
           <input id="recipe-import-endpoint" name="endpoint" type="url" value="${esc(importer)}"
-            placeholder="https://….workers.dev">
-          <p class="scan-help">Dla AniaGotuje wklej tu adres wdrożonej usługi. Aplikacja wyśle do niej tylko link do przepisu.</p></div>
+            placeholder="https://import.twoja-domena.pl">
+          <p class="scan-help">Jeśli strona blokuje pobieranie z przeglądarki, wklej adres usługi importu. Aplikacja wyśle do niej tylko link do przepisu.</p></div>
       </details>
       <p class="scan-help" role="status" id="recipe-import-status" hidden></p>
       <div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button>
         <button type="submit" class="primary-button">Pobierz przepis</button></div>
     </form>`,async(data,form)=>{
-      const source = recipeHttpsUrl(String(data.get('link')).trim());
+      const source = recipeWebUrl(String(data.get('link')).trim());
       const endpointValue = String(data.get('endpoint')).trim();
-      const endpoint = recipeHttpsUrl(endpointValue);
+      const endpoint = recipeWebUrl(endpointValue,{httpsOnly:true});
       const message = form.querySelector('#recipe-import-status');
       const submit = form.querySelector('[type=submit]');
       const status = text=>{message.textContent=text;message.hidden=false};
-      if (!source) return status('Podaj pełny adres przepisu zaczynający się od https://.');
+      if (!source) return status('Podaj pełny adres przepisu zaczynający się od https:// lub http://.');
       if (endpointValue && !endpoint) return status('Podaj prawidłowy adres usługi importu zaczynający się od https://.');
       if (submit.disabled) return;
-      const aniaGotuje = ['aniagotuje.pl','www.aniagotuje.pl'].includes(source.hostname);
-      if (aniaGotuje && !/^\/przepis\/[^/]+\/?$/u.test(source.pathname)) {
-        return status('Wklej adres konkretnego przepisu z AniaGotuje.');
+      if (source.protocol==='http:' && !endpoint) {
+        form.querySelector('details').open = true;
+        return status('Do pobrania przepisu z adresu http:// potrzebna jest usługa importu.');
       }
       source.hash = '';
-      if (aniaGotuje) source.search = '';
+      if (endpoint) endpoint.hash = '';
       try {
         if (endpoint) localStorage.setItem(RECIPE_IMPORT_ENDPOINT_KEY,endpoint.href);
         else localStorage.removeItem(RECIPE_IMPORT_ENDPOINT_KEY);
       } catch {}
-      const request = aniaGotuje && endpoint ? endpoint : new URL(source);
-      if (aniaGotuje && endpoint) request.searchParams.set('url',source.href);
+      const request = endpoint || source;
+      if (endpoint) request.searchParams.set('url',source.href);
       const controller = new AbortController();
       const timeout = setTimeout(()=>controller.abort(),12000);
       formCleanup = ()=>controller.abort();
       status('Pobieram przepis…');
       submit.disabled = true;
       try {
-        const html = await fetchRecipePage(request,controller.signal);
+        const {html,responseUrl} = await fetchRecipePage(request,controller.signal,Boolean(endpoint));
         if (!form.isConnected) return;
-        const recipe = globalThis.recipeLinkImport.parse(html,source.href);
+        const recipe = globalThis.recipeLinkImport.parse(html,source.href,responseUrl);
         if (!recipe) return status('Na tej stronie nie udało się znaleźć składników ani kroków przepisu.');
         recipeForm(book,category,importedRecipeDraft(recipe,source),true);
-      } catch {
+      } catch (error) {
         if (!form.isConnected) return;
-        if (aniaGotuje && !endpoint) {
-          form.querySelector('details').open = true;
-          status('Przeglądarka nie mogła odczytać strony. Wpisz adres usługi importu z AniaGotuje i spróbuj ponownie.');
-        } else {
-          status('Nie udało się pobrać przepisu. Sprawdź link i spróbuj ponownie.');
-        }
+        if (!endpoint && (error instanceof TypeError || error.status===403)) form.querySelector('details').open = true;
+        status(recipeImportMessage(error,endpoint,controller.signal.aborted));
       } finally {
         clearTimeout(timeout);
         submit.disabled = false;
@@ -1767,8 +2222,9 @@
       return `<button type="button" class="text-button ingredient-linked-open"
         data-action="preview-linked-recipe:${esc(recipe.id)}">Podgląd: ${esc(recipe.name)}</button>`;
     }
+    if (!ingredient.tableLink) return '';
     const linked = resolveIngredientLink(ingredient.tableLink);
-    if (!linked) return '';
+    if (!linked) return '<small>Powiązany wpis z tabeli niedostępny</small>';
     const {table,row} = linked;
     return `<button type="button" class="text-button ingredient-linked-open"
       data-action="open-linked-table-row:${esc(table.id)}:${esc(row.id)}">Otwórz: ${esc(tableRowName(table,row))}</button>`;
@@ -1961,7 +2417,44 @@
     });
   }
 
-  function compressRecipePhoto(file,max=1400,quality=.78){return new Promise((resolve,reject)=>{const url=URL.createObjectURL(file),img=new Image();img.onload=()=>{try{const scale=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);URL.revokeObjectURL(url);resolve(canvas.toDataURL('image/jpeg',quality))}catch(e){URL.revokeObjectURL(url);reject(e)}};img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Invalid image'))};img.src=url})}
+  function compressRecipePhoto(file,max=1400,quality=.78) {
+    return new Promise((resolve,reject)=>{
+      const url = URL.createObjectURL(file);
+      const image = new Image();
+      image.onload = ()=>{
+        try {
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+          const longest = Math.max(image.naturalWidth,image.naturalHeight);
+          let scale = Math.min(1,max/longest);
+          const budget = max<=720 ? 95_000 : max<=1100 ? 140_000 : 180_000;
+          let photo;
+          while (true) {
+            canvas.width = Math.max(1,Math.round(image.naturalWidth*scale));
+            canvas.height = Math.max(1,Math.round(image.naturalHeight*scale));
+            context.fillStyle = '#fff';
+            context.fillRect(0,0,canvas.width,canvas.height);
+            context.drawImage(image,0,0,canvas.width,canvas.height);
+            photo = canvas.toDataURL('image/jpeg',quality);
+            if (photo.length<=budget || longest*scale<=480) break;
+            scale *= .78;
+            quality = Math.max(.65,quality-.04);
+          }
+          resolve(photo);
+        } catch (error) {
+          reject(error);
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      };
+      image.onerror = ()=>{
+        URL.revokeObjectURL(url);
+        reject(new Error('Invalid image'));
+      };
+      image.src = url;
+    });
+  }
+
   function recipeForm(book,cat,old,draft=false){const existing=Boolean(old&&!draft);const initialServings=old?(Number(old.servings)||4):1;const sections=old?.sections?.length?old.sections:[{name:'',ingredients:[{amount:'',name:''}],instructions:''}];
     const content=`<form id="edit-form" class="form"><div class="field"><label for="recipe-name">Nazwa przepisu</label><input id="recipe-name" name="name" required maxlength="90" value="${esc(old?.name||'')}" placeholder="np. Sos pomidorowy"></div>${recipeSourceMarkup(old?.sourceUrl)}<div class="field"><label for="recipe-description">Krótki opis</label><textarea id="recipe-description" name="description" class="small-area" maxlength="280" placeholder="Kilka słów o tym przepisie…">${esc(old?.description||'')}</textarea></div><div class="field"><label for="recipe-photo-edit">Zdjęcie przepisu</label><input id="recipe-photo-edit" type="file" accept="image/*"><span class="scan-help">Możesz wybrać zdjęcie z galerii albo zrobić nowe aparatem.</span><div class="photo-preview-box" id="recipe-photo-preview">${old?.photo?`<img class="recipe-photo-preview" src="${esc(old.photo)}" alt="Podgląd zdjęcia przepisu">`:'<span class="scan-help">Nie dodano jeszcze zdjęcia.</span>'}</div>${old?.photo?`<label><input type="checkbox" name="removePhoto"> Usuń obecne zdjęcie przy zapisie</label>`:''}</div>${tileStyleFields(old)}<div class="field"><label for="recipe-servings">Podstawowa liczba porcji</label><input id="recipe-servings" name="servings" type="number" min="1" max="100" step="1" value="${initialServings}"><span class="scan-help">Na tej podstawie aplikacja przeliczy ilości składników.</span></div><div class="field"><label><input type="checkbox" name="showPansAndMixer" ${(old?.showPansAndMixer ?? Boolean(old?.id))?'checked':''}> Pokaż foremki i limit robota</label></div><div class="field"><label><input type="checkbox" name="bakerPercentages" ${old?.bakerPercentages?'checked':''}> Procenty piekarskie</label><span class="scan-help">Dla pieczywa: wpisuj nazwy składników od „Mąka” lub „Woda”. Jeśli używasz zaczynu, podaj w etapie masę mąki i wody zawartą w wykorzystanej ilości zaczynu.</span></div><div id="sections">${sections.map((s,i)=>sectionMarkup(s,i,Boolean(old?.bakerPercentages))).join('')}</div><button type="button" class="add-link" id="add-section">＋ Dodaj część / etap</button><div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button><button class="primary-button">${existing?'Zapisz zmiany':'Zapisz przepis'}</button></div></form>`;
     const pendingPhotos = new Map();
@@ -1992,6 +2485,7 @@
           else if (file) photo=await compressRecipePhoto(file);
           for (const section of sections) {
             for (const [index,image] of section.photos.entries()) {
+              if (!form.isConnected) return;
               if (typeof image!=='string') section.photos[index]=await compressRecipePhoto(image,1100,.72);
             }
           }
@@ -2012,9 +2506,12 @@
         cat.recipes = existing ? previous.map(item=>item===old ? {...old,...recipe} : item) : [...previous,recipe];
         try {
           save();
-        } catch {
+        } catch (error) {
           cat.recipes = previous;
-          toast('Brak miejsca na zapis przepisu. Usuń część zdjęć i spróbuj ponownie.');
+          const conflict = ['CookbookConflictError','CookbookRecoveryError'].includes(error.name);
+          toast(conflict ? error.message : error.name==='QuotaExceededError'
+            ? 'Brak miejsca na zapis przepisu. Usuń część zdjęć i spróbuj ponownie.'
+            : 'Nie udało się zapisać przepisu.');
           return;
         }
         closeForm();
@@ -2052,15 +2549,20 @@
       container.insertAdjacentHTML('beforeend',ingredients.map(ingredientMarkup).join(''));
       source.value = '';
       status.textContent = `Dodano ${ingredients.length}. Sprawdź ilości i nazwy w wierszach powyżej.`;
-      refreshEditorMass(section);
+      refreshEditorMasses();
     });
-    function refreshEditorMass(section) {
-      const rows = section.querySelectorAll('.ingredient-editor');
-      const amounts = Array.from(rows,row=>[row.querySelector('[data-amount]').value,row.querySelector('[data-ing-name]').value])
-        .filter(values=>values.some(value=>value.trim()));
-      updateStageMass(section,amounts.map(([amount])=>amount),amounts.map(([,name])=>({name})));
+    function refreshEditorMasses() {
+      let previousMass;
+      for (const section of sectionsRoot.children) {
+        const rows = section.querySelectorAll('.ingredient-editor');
+        const ingredients = Array.from(rows,row=>ingredientFromEditor(row))
+          .filter(ingredient=>ingredient.amount||ingredient.name||ingredient.tableLink||ingredient.recipeLink);
+        const carried = section.querySelector('[data-baker-continue]').checked ? previousMass : null;
+        previousMass = combineStageMass(measuredStageMass(ingredients.map(item=>item.amount),ingredients),carried);
+        renderStageMass(section,previousMass,Boolean(carried));
+      }
     }
-    sectionsRoot.querySelectorAll('[data-section]').forEach(refreshEditorMass);
+    refreshEditorMasses();
     sectionsRoot.addEventListener('change',event=>{
       const input = event.target;
       if (!input.matches('[data-add-stage-photos]')) return;
@@ -2083,10 +2585,10 @@
     bindIngredientDragging(sectionsRoot);
     bindIngredientLinks(sectionsRoot,existing ? old.id : null);
     sectionsRoot.addEventListener('input',event=>{
-      if (event.target.matches('[data-amount],[data-ing-name]')) refreshEditorMass(event.target.closest('[data-section]'));
+      if (event.target.matches('[data-amount],[data-ing-name],[data-baker-continue]')) refreshEditorMasses();
     });
     sectionsRoot.addEventListener('click',event=>{
-      if (event.target.closest('[data-remove-ingredient]')) sectionsRoot.querySelectorAll('[data-section]').forEach(refreshEditorMass);
+      if (event.target.closest('[data-remove-ingredient],[data-remove-section],[data-move-section]')) refreshEditorMasses();
     });
     const bakerToggle = document.querySelector('[name=bakerPercentages]');
     bakerToggle.addEventListener('change',()=>{
@@ -2132,6 +2634,21 @@
       toast('Nie udało się zapisać tabeli na tym urządzeniu.');
       return false;
     }
+  }
+
+  function tableReferenceWarning(tableId,rowId) {
+    const referenced = new Set();
+    for (const book of state.books) {
+      for (const category of book.categories) {
+        for (const recipe of category.recipes) {
+          if (recipe.sections.some(section=>section.ingredients?.some(ingredient=>{
+            const [id,linkedRow] = String(ingredient.tableLink||'').split(':');
+            return id===tableId && (!rowId || rowId===linkedRow);
+          }))) referenced.add(recipe.id);
+        }
+      }
+    }
+    return referenced.size ? ` Powiązane przepisy (liczba: ${referenced.size}) utracą dostęp do tych danych.` : '';
   }
 
   function updateCustomTable(table) {
@@ -2206,7 +2723,7 @@
       column.remove();
     });
     document.querySelector('#delete-custom-table')?.addEventListener('click',()=>{
-      if (!confirm(`Usunąć tabelę „${table.name}” razem z jej wierszami (${table.rows.length})?`)) return;
+      if (!confirm(`Usunąć tabelę „${table.name}” razem z jej wierszami (${table.rows.length})?${tableReferenceWarning(table.id)}`)) return;
       if (!storeCustomTables(state.tables.filter(item=>item.id!==table.id))) return;
       closeForm();
       navigate('home');
@@ -2230,25 +2747,24 @@
         aria-label="Szukaj w tabeli" placeholder="Szukaj w tabeli"></div>
       ${viewZoomControls('Widok tabeli','<button type="button" class="quiet-button" id="custom-table-print">Zapisz / drukuj PDF</button>')}
       <div id="custom-table-results"></div></div>`;
-    bindViewZoom(table.viewZoom,zoom=>{
-      table.viewZoom = zoom;
-      save();
-    });
+    bindViewZoom(table.viewZoom,zoom=>saveViewZoom(table,zoom));
     const input = main.querySelector('#custom-table-search');
     const results = main.querySelector('#custom-table-results');
     const print = main.querySelector('#custom-table-print');
     function refresh() {
-      const query = input.value.trim().toLocaleLowerCase('pl');
+      const query = searchText(input.value);
       const rows = table.rows.filter(row=>table.columns.some(column=>
-        String(row.cells[column.id]||'').toLocaleLowerCase('pl').includes(query)) ||
-        row.components?.some(item=>`${item.amount} ${item.name}`.toLocaleLowerCase('pl').includes(query)));
+        searchText(row.cells[column.id]).includes(query)) ||
+        row.components?.some(item=>searchText(`${item.amount} ${item.name}`).includes(query)));
       print.disabled = !rows.length;
       results.innerHTML = rows.length ? `<div class="prep-table-scroll prep-list" tabindex="0" role="region" aria-label="${esc(table.name)}">
         <table class="custom-table"><thead><tr>${table.columns.map(column=>`<th scope="col">${esc(column.label)}</th>`).join('')}
           <th scope="col" class="custom-table-row-action"><span class="custom-table-visually-hidden">Edycja</span></th></tr></thead>
           <tbody>${rows.map(row=>`<tr>${table.columns.map((column,i)=>`<td>${esc(row.cells[column.id]||'—')}
             ${i===0&&(row.recipeLink||row.components?.length)?`<button type="button" class="text-button table-components-open"
-              data-action="open-linked-table-row:${esc(table.id)}:${esc(row.id)}">${row.recipeLink?'Podgląd':`Składniki (${row.components.length})`}</button>`:''}</td>`).join('')}
+              data-action="open-linked-table-row:${esc(table.id)}:${esc(row.id)}">${row.recipeLink?'Podgląd':`Składniki (${row.components.length})`}</button>`:''}
+            ${i===0&&row.components?.length?`<div class="table-print-components"><strong>Składniki</strong>
+              <ul>${row.components.map(({amount,name})=>`<li>${esc([amount,name].filter(Boolean).join(' '))}</li>`).join('')}</ul></div>`:''}</td>`).join('')}
             <td class="custom-table-row-action"><button type="button" class="custom-table-row-edit" aria-label="Edytuj wiersz" title="Edytuj wiersz" data-action="edit-table-row:${table.id}:${row.id}">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5 4 4M4 20l4.5-1 12-12a2 2 0 0 0-4-4l-12 12Z"/></svg>
             </button></td>
@@ -2314,7 +2830,7 @@
       event.target.closest('[data-remove-table-component]')?.closest('[data-table-component]').remove();
     });
     document.querySelector('#delete-table-row')?.addEventListener('click',()=>{
-      if (!confirm('Usunąć ten wiersz z tabeli?')) return;
+      if (!confirm(`Usunąć ten wiersz z tabeli?${tableReferenceWarning(table.id,row.id)}`)) return;
       if (!updateCustomTable({...table,rows:table.rows.filter(item=>item.id!==row.id)})) return;
       closeForm();
       render();
@@ -2385,49 +2901,101 @@
       const recipe = recipeBy(book,category,p[2]);
       if (recipe) return recipeForm(book,category,{...recipe,name:recipe.name.slice(0,82)+' (kopia)'},true);
     }
-    if(act==='delete-recipe'){const b=bookBy(p[0]),c=catBy(b,p[1]),r=recipeBy(b,c,p[2]);if(confirm(`Usunąć ${r.kind==='prep-sv'?'prep':'przepis'} „${r.name}”?`)){c.recipes=c.recipes.filter(x=>x.id!==r.id);save();navigate(`category:${b.id}:${c.id}`);toast(r.kind==='prep-sv'?'Prep usunięty':'Przepis usunięty')}}
+    if (act==='delete-recipe') {
+      const book = bookBy(p[0]);
+      const category = catBy(book,p[1]);
+      const recipe = recipeBy(book,category,p[2]);
+      if (!recipe) return;
+      const recipeReferences = cookbookStorage.recipeEntries(state).filter(({recipe:other})=>
+        other!==recipe && other.sections.some(section=>section.ingredients.some(item=>item.recipeLink===recipe.id))).length;
+      const tableReferences = state.tables.flatMap(table=>table.rows).filter(row=>row.recipeLink===recipe.id).length;
+      const references = recipeReferences+tableReferences;
+      const warning = references ? ` Odwołania do przepisu staną się niedostępne (liczba: ${references}).` : '';
+      if (!confirm(`Usunąć przepis „${recipe.name}”?${warning}`)) return;
+      const previous = category.recipes;
+      category.recipes = previous.filter(item=>item!==recipe);
+      try {
+        save();
+      } catch {
+        category.recipes = previous;
+        toast('Nie udało się usunąć przepisu.');
+        return;
+      }
+      navigate(`category:${book.id}:${category.id}`);
+      toast('Przepis usunięty');
+    }
   });
   document.addEventListener('change',e=>{if(e.target.id==='recipe-photo'&&e.target.files?.[0]){const b=bookBy(route.book),c=catBy(b,route.category);if(b&&c)scanPhoto(e.target.files[0],b,c);e.target.value=''}});
   document.querySelector('#home-link').addEventListener('click',e=>{e.preventDefault();navigate('home')});
-  document.querySelector('#export-button').addEventListener('click',()=>{const blob=new Blob([JSON.stringify({format:'domowa-kuchnia',version:1,exportedAt:new Date().toISOString(),...state},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='moja-ksiazka-kucharska.json';a.click();URL.revokeObjectURL(a.href);toast('Kopia zapasowa pobrana')});
-  document.querySelector('#import-button').addEventListener('click',()=>document.querySelector('#import-file').click());
-  function importSelectedRecipes(entries) {
-    const books = structuredClone(state.books);
-    const importedIds = new Map(entries.map(({recipe})=>[recipe.id,id()]));
-    for (const {book:sourceBook,category:sourceCategory,recipe,destination} of entries) {
-      let book = destination
-        ? books.find(item=>item.id===destination.book.id)
-        : books.find(item=>item.name===sourceBook.name);
-      if (!book) {
-        book = {...sourceBook,id:id(),categories:[]};
-        books.push(book);
-      }
-      let category = destination?.category
-        ? book.categories.find(item=>item.id===destination.category.id)
-        : book.categories.find(item=>item.name===sourceCategory.name);
-      if (!category) {
-        category = {...sourceCategory,id:id(),recipes:[]};
-        book.categories.push(category);
-      }
-      const copy = structuredClone(recipe);
-      copy.id = importedIds.get(recipe.id);
-      for (const section of copy.sections||[]) {
-        for (const ingredient of section.ingredients||[]) {
-          if (importedIds.has(ingredient.recipeLink)) ingredient.recipeLink = importedIds.get(ingredient.recipeLink);
-        }
-      }
-      delete copy.notes;
-      delete copy.hideFromPrepIndex;
-      category.recipes.push(copy);
-    }
-    const updated = {...state,books};
-    localStorage.setItem(KEY,JSON.stringify(updated));
-    state = updated;
+
+  function downloadCookbook(contents,filename) {
+    const blob = new Blob([contents],{type:'application/json'});
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.download = filename;
+    link.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
 
+  document.querySelector('#export-button').addEventListener('click',()=>{
+    if (damagedCookbook && savedCookbook!==null) {
+      downloadCookbook(savedCookbook,'moja-ksiazka-kucharska-odzysk.json');
+      return;
+    }
+    try {
+      const current = localStorage.getItem(KEY);
+      const data = current===null ? state : cookbookStorage.normalize(JSON.parse(current));
+      downloadCookbook(JSON.stringify({format:'domowa-kuchnia',version:1,exportedAt:new Date().toISOString(),...data},null,2),'moja-ksiazka-kucharska.json');
+      toast('Kopia zapasowa pobrana');
+    } catch {
+      toast('Nie udało się przygotować kopii zapasowej.');
+    }
+  });
+
+  let recoverySnapshot;
+  cookbookStorage.restoreSnapshot('read').then(snapshot=>{recoverySnapshot=snapshot;}).catch(()=>{});
+  document.querySelector('#import-button').addEventListener('click',()=>{
+    const input = document.querySelector('#import-file');
+    if (!recoverySnapshot) return input.click();
+    showForm('Kopie zapasowe',`
+      <div class="form-actions">
+        <button type="button" class="primary-button" id="read-backup-file">Wczytaj plik</button>
+        <button type="button" class="quiet-button" id="undo-backup-restore">${recoverySnapshot.canUndo===false?'Pobierz poprzednie dane':'Cofnij odtworzenie kopii'}</button>
+      </div>`);
+    document.querySelector('#read-backup-file').addEventListener('click',()=>{
+      closeForm();
+      input.click();
+    });
+    document.querySelector('#undo-backup-restore').addEventListener('click',async event=>{
+      const button = event.currentTarget;
+      if (recoverySnapshot?.canUndo===false) {
+        downloadCookbook(recoverySnapshot.contents,'moja-ksiazka-kucharska-odzysk.json');
+        return;
+      }
+      if (!confirm('Przywrócić dane sprzed ostatniego odtworzenia? Późniejsze zmiany zostaną zastąpione.')) return;
+      button.disabled = true;
+      try {
+        const snapshot = await cookbookStorage.restoreSnapshot('read');
+        if (!snapshot || !button.isConnected) return;
+        const previous = cookbookStorage.normalize(JSON.parse(snapshot.contents));
+        save(previous,{allowReplacement:true});
+        state = previous;
+        recoverySnapshot = undefined;
+        closeForm();
+        navigate('home');
+        toast('Przywrócono dane sprzed odtworzenia kopii.');
+        await cookbookStorage.restoreSnapshot('clear');
+      } catch {
+        if (button.isConnected) toast('Nie udało się przywrócić poprzednich danych.');
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+
   function reviewBackup(data) {
-    const entries = data.books.flatMap(book=>book.categories.flatMap(category=>
-      category.recipes.map(recipe=>({book,category,recipe}))));
+    const entries = cookbookStorage.recipeEntries(data);
     const destinations = state.books.flatMap(book=>book.categories.map(category=>({book,category})));
     const categoryOptions = destinations.map(({book,category},i)=>
       `<option value="category:${i}">${esc(book.name)} · ${esc(category.name)}</option>`).join('');
@@ -2447,6 +3015,7 @@
             </div>
           </div>`).join('')}
         </div>
+        <label><input type="checkbox" name="include-dependencies" checked> Dołącz powiązane przepisy i wiersze tabel</label>
         <div class="field"><label for="backup-destination">Domyślne miejsce dla zaznaczonych przepisów</label>
           <select id="backup-destination" name="destination">
             <option value="">Książki i działy według nazw z kopii</option>
@@ -2473,8 +3042,11 @@
         message.hidden = false;
         return;
       }
+      let result;
       try {
-        importSelectedRecipes(selected);
+        result = cookbookStorage.importRecipes(state,data,selected,formData.has('include-dependencies'),id);
+        save(result.cookbook);
+        state = result.cookbook;
       } catch {
         message.textContent = 'Nie udało się zapisać wybranych przepisów na tym urządzeniu.';
         message.hidden = false;
@@ -2482,7 +3054,7 @@
       }
       closeForm();
       navigate('home');
-      toast(`Dodano przepisy: ${selected.length}`);
+      toast(`Dodano przepisy: ${result.recipeCount}${result.rowCount?` · Wiersze tabel: ${result.rowCount}`:''}`);
     });
     document.querySelector('.backup-recipe-list')?.addEventListener('change',event=>{
       if (!event.target.matches('[name=recipes]')) return;
@@ -2504,17 +3076,32 @@
         row.hidden = !row.querySelector('.backup-recipe-label').textContent.toLocaleLowerCase('pl').includes(query);
       });
     });
-    document.querySelector('#restore-full-backup').addEventListener('click',()=>{
+    document.querySelector('#restore-full-backup').addEventListener('click',async event=>{
+      const button = event.currentTarget;
       if (!confirm('Odtworzyć całą kopię? Obecne książki, przepisy i tabele zostaną zastąpione zawartością kopii.')) return;
+      button.disabled = true;
+      let olderSnapshot, snapshot, snapshotWritten = false;
       try {
-        localStorage.setItem(KEY,JSON.stringify(data));
-        state = data;
+        snapshot = {contents:savedCookbook??JSON.stringify(state),canUndo:!damagedCookbook};
+        olderSnapshot = await cookbookStorage.restoreSnapshot('read');
+        if (!button.isConnected) return;
+        await cookbookStorage.restoreSnapshot('write',snapshot);
+        snapshotWritten = true;
+        if (!button.isConnected) throw new Error('Odtwarzanie zostało anulowane.');
+        save(data,{allowReplacement:true});
       } catch {
+        if (snapshotWritten) await cookbookStorage.restoreSnapshot('write',olderSnapshot).catch(()=>{});
         const message = document.querySelector('#backup-import-status');
-        message.textContent = 'Nie udało się odtworzyć kopii na tym urządzeniu.';
-        message.hidden = false;
+        if (message) {
+          message.textContent = 'Nie udało się bezpiecznie odtworzyć kopii. Dotychczasowe dane pozostały zapisane.';
+          message.hidden = false;
+        }
         return;
+      } finally {
+        button.disabled = false;
       }
+      state = data;
+      recoverySnapshot = snapshot;
       closeForm();
       navigate('home');
       toast('Kopia zapasowa wczytana');
@@ -2526,14 +3113,10 @@
     const file = input.files[0];
     if (!file) return;
     try {
-      const data = JSON.parse(await file.text());
-      if (!Array.isArray(data?.books) || !data.books.every(book=>
-        typeof book?.name==='string' && Array.isArray(book.categories) && book.categories.every(category=>
-          typeof category?.name==='string' && Array.isArray(category.recipes) &&
-          category.recipes.every(recipe=>typeof recipe?.name==='string')))) throw Error('bad backup');
-      reviewBackup(normalizeCookbook(data));
+      const data = cookbookStorage.normalize(JSON.parse(await file.text()));
+      reviewBackup(data);
     } catch {
-      toast('Nie udało się wczytać tego pliku.');
+      toast('Plik ma nieprawidłową strukturę kopii zapasowej.');
     } finally {
       input.value = '';
     }
