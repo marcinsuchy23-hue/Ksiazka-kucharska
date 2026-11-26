@@ -204,24 +204,28 @@
 </aside>
 <div id="overlay-root"></div><div id="toast-root"></div>
 <script src="./recipe-link-import.js?v=101"></script>
-<script src="./cookbook-storage.js"></script>
+<script src="./cookbook-storage.js?v=102"></script>
 <script>
-(()=>{
+(async()=>{
   const KEY='domowa-kuchnia-v1';
   const colors=['#e7eee4','#f7e8dc','#eee8f4','#e5eef1','#f2ebd8','#f3e5e7'];
   const icons=['📖','🍃','🍲','🥣','🍰','🫙','🥗','🍋'];
   let savedCookbook = null;
   let damagedCookbook = false;
-  let state=load(), route={type:'home'}, search='', homeSearch='';
+  let state=await load(), route={type:'home'}, search='', homeSearch='';
   const main=document.querySelector('#main');
-  function load() {
+  async function load() {
     try {
       savedCookbook = localStorage.getItem(KEY);
-      if (savedCookbook!==null) return cookbookStorage.normalize(JSON.parse(savedCookbook));
+      if (savedCookbook!==null) return await decodeCookbook(savedCookbook);
     } catch {
       damagedCookbook = true;
     }
     return {books:[],prepEntries:[],prepTile:{},tables:[]};
+  }
+
+  async function decodeCookbook(contents) {
+    return cookbookStorage.normalize(await cookbookStorage.photos.hydrate(JSON.parse(contents)));
   }
 
   function showStorageWarning(message,canReload) {
@@ -242,7 +246,7 @@
       warnAboutNewerCookbook();
       throw Object.assign(new Error('Książka zmieniła się w innej karcie. Wczytaj najnowsze dane.'),{name:'CookbookConflictError'});
     }
-    const snapshot = JSON.stringify(next);
+    const snapshot = JSON.stringify(cookbookStorage.photos.encode(next));
     localStorage.setItem(KEY,snapshot);
     savedCookbook = snapshot;
     damagedCookbook = false;
@@ -673,7 +677,10 @@
       try {
         let photo;
         try {
-          if (file) photo = await compressRecipePhoto(file,720,.7);
+          if (file) {
+            photo = await compressRecipePhoto(file,720,.7);
+            await cookbookStorage.photos.prepare(state,{photo});
+          }
         } catch {
           showError('Nie udało się wczytać zdjęcia. Wybierz inne lub zapisz wpis bez zdjęcia.');
           return;
@@ -1739,7 +1746,10 @@
       let photo = item?.photo||'';
       try {
         if (data.get('removePhoto')==='on') photo='';
-        else if (file) photo=await compressRecipePhoto(file);
+        else if (file) {
+          photo = await compressRecipePhoto(file);
+          await cookbookStorage.photos.prepare(state,{photo});
+        }
       } catch {
         message.textContent = 'Nie udało się wczytać zdjęcia. Wybierz je ponownie.';
         message.hidden = false;
@@ -1826,7 +1836,10 @@
       const file = form.querySelector('#category-photo').files[0];
       try {
         if (data.get('removePhoto')==='on') photo='';
-        else if (file) photo=await compressRecipePhoto(file);
+        else if (file) {
+          photo = await compressRecipePhoto(file);
+          await cookbookStorage.photos.prepare(state,{photo});
+        }
         if (!form.isConnected) return;
         const updated = {
           ...category,name,photo,id:category?.id||id(),recipes:category?.recipes||[],
@@ -2560,15 +2573,18 @@
           showPansAndMixer:fd.get('showPansAndMixer')==='on',bakerPercentages:fd.get('bakerPercentages')==='on',
           servings:Math.min(100,Math.max(1,Number(fd.get('servings'))||initialServings)),sections
         };
-        const previous = cat.recipes;
-        cat.recipes = existing ? previous.map(item=>item===old ? {...old,...recipe} : item) : [...previous,recipe];
+        let previous;
         try {
+          await cookbookStorage.photos.prepare(state,recipe);
+          if (!form.isConnected) return;
+          previous = cat.recipes;
+          cat.recipes = existing ? previous.map(item=>item===old ? {...old,...recipe} : item) : [...previous,recipe];
           save();
         } catch (error) {
-          cat.recipes = previous;
+          if (previous) cat.recipes = previous;
           const conflict = ['CookbookConflictError','CookbookRecoveryError'].includes(error.name);
           toast(conflict ? error.message : error.name==='QuotaExceededError'
-            ? 'Brak miejsca na zapis przepisu. Usuń część zdjęć i spróbuj ponownie.'
+            ? 'Brakuje wolnego miejsca w pamięci przeglądarki. Zapisz kopię książki przed zwalnianiem miejsca.'
             : 'Nie udało się zapisać przepisu.');
           return;
         }
@@ -2746,7 +2762,10 @@
         const file = form.querySelector('#custom-table-photo').files[0];
         if (data.get('removePhoto')==='on') photo='';
         else if (file) {
-          try {photo=await compressRecipePhoto(file,720,.7);} catch {
+          try {
+            photo = await compressRecipePhoto(file,720,.7);
+            await cookbookStorage.photos.prepare(state,{photo});
+          } catch {
             toast('Nie udało się wczytać zdjęcia.');
             return;
           }
@@ -2996,14 +3015,14 @@
     setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
 
-  document.querySelector('#export-button').addEventListener('click',()=>{
+  document.querySelector('#export-button').addEventListener('click',async()=>{
     if (damagedCookbook && savedCookbook!==null) {
       downloadCookbook(savedCookbook,'moja-ksiazka-kucharska-odzysk.json');
       return;
     }
     try {
       const current = localStorage.getItem(KEY);
-      const data = current===null ? state : cookbookStorage.normalize(JSON.parse(current));
+      const data = current===null ? state : await decodeCookbook(current);
       downloadCookbook(JSON.stringify({format:'domowa-kuchnia',version:1,exportedAt:new Date().toISOString(),...data},null,2),'moja-ksiazka-kucharska.json');
       toast('Kopia zapasowa pobrana');
     } catch {
@@ -3036,7 +3055,8 @@
       try {
         const snapshot = await cookbookStorage.restoreSnapshot('read');
         if (!snapshot || !button.isConnected) return;
-        const previous = cookbookStorage.normalize(JSON.parse(snapshot.contents));
+        const previous = await decodeCookbook(snapshot.contents);
+        if (!button.isConnected) return;
         save(previous,{allowReplacement:true});
         state = previous;
         recoverySnapshot = undefined;
@@ -3085,7 +3105,9 @@
         <button type="button" class="danger-button" id="restore-full-backup">Odtwórz całą kopię</button>
         ${entries.length?'<button type="submit" class="primary-button">Dodaj zaznaczone</button>':''}
       </div>
-    </form>`,(formData,form)=>{
+    </form>`,async(formData,form)=>{
+      const button = form.querySelector('[type=submit]');
+      if (!button || button.disabled) return;
       const selected = formData.getAll('recipes').map(index=>{
         const entry = entries[Number(index)];
         const value = formData.get('route-'+index) || formData.get('destination') || '';
@@ -3101,14 +3123,22 @@
         return;
       }
       let result;
+      button.disabled = true;
       try {
-        result = cookbookStorage.importRecipes(state,data,selected,formData.has('include-dependencies'),id);
+        const current = state;
+        result = cookbookStorage.importRecipes(current,data,selected,formData.has('include-dependencies'),id);
+        const baseline = savedCookbook;
+        await cookbookStorage.photos.prepare(result.cookbook);
+        if (!form.isConnected) return;
+        if (baseline!==savedCookbook) throw new Error('Zmieniono książkę podczas importu.');
         save(result.cookbook);
         state = result.cookbook;
       } catch {
         message.textContent = 'Nie udało się zapisać wybranych przepisów na tym urządzeniu.';
         message.hidden = false;
         return;
+      } finally {
+        button.disabled = false;
       }
       closeForm();
       navigate('home');
@@ -3140,12 +3170,15 @@
       button.disabled = true;
       let olderSnapshot, snapshot, snapshotWritten = false;
       try {
+        const baseline = savedCookbook;
+        await cookbookStorage.photos.prepare(data);
+        if (baseline!==savedCookbook) throw new Error('Zmieniono książkę podczas importu.');
         snapshot = {contents:savedCookbook??JSON.stringify(state),canUndo:!damagedCookbook};
         olderSnapshot = await cookbookStorage.restoreSnapshot('read');
         if (!button.isConnected) return;
         await cookbookStorage.restoreSnapshot('write',snapshot);
         snapshotWritten = true;
-        if (!button.isConnected) throw new Error('Odtwarzanie zostało anulowane.');
+        if (!button.isConnected || baseline!==savedCookbook) throw new Error('Odtwarzanie zostało anulowane.');
         save(data,{allowReplacement:true});
       } catch {
         if (snapshotWritten) await cookbookStorage.restoreSnapshot('write',olderSnapshot).catch(()=>{});

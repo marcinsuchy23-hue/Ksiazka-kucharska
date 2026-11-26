@@ -212,29 +212,125 @@
     return {cookbook:{...current,books,tables},recipeCount:planned.entries.length,rowCount:planned.rows.length};
   }
 
-  function restoreSnapshot(mode,snapshot) {
+  function storageTransaction(database,storeName,mode,run) {
     return new Promise((resolve,reject)=>{
-      const request = indexedDB.open('moja-kuchnia-recovery',1);
-      request.onupgradeneeded = ()=>request.result.createObjectStore('snapshots');
+      const request = indexedDB.open(database,1);
+      request.onupgradeneeded = ()=>request.result.createObjectStore(storeName);
       request.onerror = ()=>reject(request.error);
-      request.onblocked = ()=>reject(new Error('Magazyn kopii jest niedostępny.'));
+      request.onblocked = ()=>reject(new Error('Magazyn przeglądarki jest zajęty.'));
       request.onsuccess = ()=>{
         const db = request.result;
-        const transaction = db.transaction('snapshots',mode==='read'?'readonly':'readwrite');
-        const store = transaction.objectStore('snapshots');
-        const result = mode==='read' ? store.get('before-restore')
-          : snapshot ? store.put(snapshot,'before-restore') : store.delete('before-restore');
-        transaction.oncomplete = ()=>{
+        try {
+          const transaction = db.transaction(storeName,mode);
+          const result = run(transaction.objectStore(storeName));
+          transaction.oncomplete = ()=>{
+            db.close();
+            resolve(result());
+          };
+          transaction.onabort = ()=>{
+            db.close();
+            reject(transaction.error);
+          };
+        } catch (error) {
           db.close();
-          resolve(result.result);
-        };
-        transaction.onabort = ()=>{
-          db.close();
-          reject(transaction.error);
-        };
+          reject(error);
+        }
       };
     });
   }
 
-  window.cookbookStorage = {normalize,recipeEntries,importRecipes,restoreSnapshot};
+  function restoreSnapshot(mode,snapshot) {
+    return storageTransaction('moja-kuchnia-recovery','snapshots',mode==='read'?'readonly':'readwrite',store=>{
+      const request = mode==='read' ? store.get('before-restore')
+        : snapshot ? store.put(snapshot,'before-restore') : store.delete('before-restore');
+      return ()=>request.result;
+    });
+  }
+
+  const photoReferencePrefix = 'moja-kuchnia-photo:';
+  const inlineImage = /^data:image\/[a-z0-9.+-]+(?:;[^;,]+)*;base64,/i;
+  const photoReferences = new Map();
+  let photoWrites = Promise.resolve(true);
+
+  function photoFields(...inputs) {
+    const fields = [];
+    const seen = new WeakSet();
+    while (inputs.length) {
+      const item = inputs.pop();
+      if (!item || typeof item!=='object' || seen.has(item)) continue;
+      seen.add(item);
+      for (const [key,value] of Object.entries(item)) {
+        if ((key==='photo' || key==='thumbnail') && typeof value==='string') fields.push([item,key]);
+        if (key==='photos' && Array.isArray(value)) {
+          value.forEach((photo,index)=>{
+            if (typeof photo==='string') fields.push([value,index]);
+          });
+        }
+        if (value && typeof value==='object') inputs.push(value);
+      }
+    }
+    return fields;
+  }
+
+  async function imageId(image) {
+    if (!crypto.subtle) return crypto.randomUUID();
+    const bytes = await crypto.subtle.digest('SHA-256',new TextEncoder().encode(image));
+    return [...new Uint8Array(bytes)].map(byte=>byte.toString(16).padStart(2,'0')).join('');
+  }
+
+  function preparePhotos(...inputs) {
+    photoWrites = photoWrites.then(async()=>{
+      const pending = new Map();
+      for (const [owner,key] of photoFields(...inputs)) {
+        const image = owner[key];
+        if (!inlineImage.test(image) || photoReferences.has(image) || pending.has(image)) continue;
+        pending.set(image,await imageId(image));
+      }
+      if (pending.size) {
+        await storageTransaction('moja-kuchnia-photos','photos','readwrite',store=>{
+          for (const [image,id] of pending) store.put(image,id);
+          return ()=>undefined;
+        });
+        // A payload can use these IDs only after the IndexedDB transaction commits.
+        for (const [image,id] of pending) photoReferences.set(image,id);
+      }
+      return true;
+    }).catch(()=>false);
+    return photoWrites;
+  }
+
+  function encodePhotos(data) {
+    const encoded = structuredClone(data);
+    for (const [owner,key] of photoFields(encoded)) {
+      const id = photoReferences.get(owner[key]);
+      if (id) owner[key] = photoReferencePrefix+id;
+    }
+    return encoded;
+  }
+
+  async function hydratePhotos(data) {
+    const encoded = photoFields(data).some(([owner,key])=>owner[key].startsWith(photoReferencePrefix));
+    if (!encoded) return data;
+    const hydrated = structuredClone(data);
+    const fields = photoFields(hydrated).filter(([owner,key])=>owner[key].startsWith(photoReferencePrefix));
+    const ids = new Set(fields.map(([owner,key])=>owner[key].slice(photoReferencePrefix.length)));
+    if ([...ids].some(id=>!/^[a-f0-9-]{32,64}$/.test(id))) throw new Error('Nieprawidłowe odwołanie do zdjęcia.');
+    const images = await storageTransaction('moja-kuchnia-photos','photos','readonly',store=>{
+      const requests = new Map([...ids].map(id=>[id,store.get(id)]));
+      return ()=>new Map([...requests].map(([id,request])=>[id,request.result]));
+    });
+    for (const image of images.values()) {
+      if (typeof image!=='string' || !inlineImage.test(image)) throw new Error('Nie udało się odczytać zapisanego zdjęcia.');
+    }
+    for (const [owner,key] of fields) {
+      const id = owner[key].slice(photoReferencePrefix.length);
+      const image = images.get(id);
+      owner[key] = image;
+      photoReferences.set(image,id);
+    }
+    return hydrated;
+  }
+
+  const photos = {prepare:preparePhotos,encode:encodePhotos,hydrate:hydratePhotos};
+  window.cookbookStorage = {normalize,recipeEntries,importRecipes,restoreSnapshot,photos};
 })();
