@@ -37,6 +37,8 @@
       input,textarea,select {font-size:18px!important}
     }
     .recipe-actions {flex-wrap:wrap}
+    .stage-position {display:flex;align-items:center;gap:5px;color:var(--green);font-size:14px}
+    .stage-position select {min-height:36px;padding:4px 5px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--green);font:inherit}
     .ingredient-actions {display:flex;align-items:center;gap:3px}
     .ingredient-actions [data-drag-ingredient] {
       width:38px;min-height:40px;padding:0;border:0;border-radius:8px;background:#eeece4;
@@ -1907,7 +1909,9 @@
       <button type="button" class="text-button" data-remove-stage-photo aria-label="Usuń zdjęcie etapu">Usuń</button></figure>`;
   }
 
-  function sectionMarkup(s={},i=0,baker=false){const ingredients=s.ingredients?.length?s.ingredients:[{amount:'',name:''}];return `<div class="section-editor" data-section data-description="${esc(s.description||'')}"><div class="section-editor-head"><span class="eyebrow">Część przepisu ${i+1}</span><span class="stage-actions"><button type="button" data-move-section="up" aria-label="Przenieś etap wyżej" title="Przenieś wyżej">↑</button><button type="button" data-move-section="down" aria-label="Przenieś etap niżej" title="Przenieś niżej">↓</button><button type="button" class="remove-small" data-remove-section title="Usuń część">×</button></span></div><div class="form" style="gap:11px"><div class="field"><label>Nazwa części / etapu</label><input data-s-name required maxlength="60" value="${esc(s.name||'')}" placeholder="np. Sos, ciasto, nadzienie"></div><div class="field"><span class="label">Składniki</span><div data-ingredients>${ingredients.map(ing=>ingredientMarkup(ing)).join('')}</div><button type="button" class="add-link" data-add-ingredient>＋ Dodaj składnik</button><details class="ingredient-dictation">
+  function sectionMarkup(s={},i=0,baker=false){const ingredients=s.ingredients?.length?s.ingredients:[{amount:'',name:''}];return `<div class="section-editor" data-section data-description="${esc(s.description||'')}"><div class="section-editor-head"><span class="eyebrow">Część przepisu ${i+1}</span><span class="stage-actions"><label class="stage-position" data-stage-position hidden>
+        <span>Pozycja</span><select data-section-position aria-label="Pozycja etapu"></select>
+      </label><button type="button" class="remove-small" data-remove-section title="Usuń część">×</button></span></div><div class="form" style="gap:11px"><div class="field"><label>Nazwa części / etapu</label><input data-s-name required maxlength="60" value="${esc(s.name||'')}" placeholder="np. Sos, ciasto, nadzienie"></div><div class="field"><span class="label">Składniki</span><div data-ingredients>${ingredients.map(ing=>ingredientMarkup(ing)).join('')}</div><button type="button" class="add-link" data-add-ingredient>＋ Dodaj składnik</button><details class="ingredient-dictation">
         <summary>Dyktuj składniki</summary>
         <div class="field"><label>Tekst składników<textarea data-dictation-text placeholder="500 g mąki, 350 g wody, 10 g soli"></textarea></label>
           <p class="scan-help">Stuknij mikrofon na klawiaturze i podyktuj składniki. Między nimi powiedz „przecinek” lub „nowy wiersz”.</p>
@@ -2788,8 +2792,67 @@ Nie twórz plików do pobrania, linków importujących ani przekierowań.`;
       if (coverPreviewUrl) URL.revokeObjectURL(coverPreviewUrl);
     };
     const photoInput=document.querySelector('#recipe-photo-edit'),photoPreview=document.querySelector('#recipe-photo-preview');photoInput.addEventListener('change',()=>{const file=photoInput.files?.[0];if(!file)return;if(coverPreviewUrl)URL.revokeObjectURL(coverPreviewUrl);const url=coverPreviewUrl=URL.createObjectURL(file);photoPreview.innerHTML=`<img class="recipe-photo-preview" src="${url}" alt="Podgląd wybranego zdjęcia">`;const remove=form=>form.querySelector('[name=removePhoto]');const removeCheck=document.querySelector('#edit-form [name=removePhoto]');if(removeCheck)removeCheck.checked=false});
-    const sectionsRoot=document.querySelector('#sections');const updateSectionOrder=()=>[...sectionsRoot.children].forEach((el,i)=>{el.querySelector('.section-editor-head .eyebrow').textContent=`Część przepisu ${i+1}`;el.querySelector('[data-move-section="up"]').disabled=i===0;el.querySelector('[data-move-section="down"]').disabled=i===sectionsRoot.children.length-1});updateSectionOrder();sectionsRoot.addEventListener('click',e=>{const move=e.target.closest('[data-move-section]');if(move){const item=move.closest('[data-section]');if(move.dataset.moveSection==='up'&&item.previousElementSibling)sectionsRoot.insertBefore(item,item.previousElementSibling);else if(move.dataset.moveSection==='down'&&item.nextElementSibling)sectionsRoot.insertBefore(item.nextElementSibling,item);updateSectionOrder();return}if(e.target.closest('[data-add-ingredient]')){const container=e.target.closest('[data-section]').querySelector('[data-ingredients]');container.insertAdjacentHTML('beforeend',ingredientMarkup());container.lastElementChild.querySelector('[data-amount]').focus()}if(e.target.closest('[data-remove-ingredient]')){const group=e.target.closest('[data-ingredients]');if(group.children.length>1)e.target.closest('.ingredient-editor').remove();else{const row=group.firstElementChild;row.querySelectorAll('input').forEach(x=>x.value='');row.dataset.ingredientLink='';
-      const select=row.querySelector('[data-ingredient-link-select]');if(select){select.value='';row.querySelector('[data-link-ingredient]').classList.remove('is-linked')}}}if(e.target.closest('[data-remove-section]')){if(sectionsRoot.children.length>1)e.target.closest('[data-section]').remove();else toast('Przepis musi mieć przynajmniej jeden etap');updateSectionOrder()}});
+    const sectionsRoot = document.querySelector('#sections');
+    function updateSectionOrder() {
+      const sections = [...sectionsRoot.children];
+      const options = sections.map((_,i)=>`<option value="${i}">${i+1}</option>`).join('');
+      sections.forEach((section,index)=>{
+        section.querySelector('.section-editor-head .eyebrow').textContent = `Część przepisu ${index+1}`;
+        const position = section.querySelector('[data-section-position]');
+        position.innerHTML = options;
+        position.value = String(index);
+        position.setAttribute('aria-label',`Pozycja etapu ${index+1} z ${sections.length}`);
+        position.closest('[data-stage-position]').hidden = sections.length<2;
+      });
+    }
+    updateSectionOrder();
+    sectionsRoot.addEventListener('change',event=>{
+      const position = event.target;
+      if (!position.matches('[data-section-position]')) return;
+      const section = position.closest('[data-section]');
+      const sections = [...sectionsRoot.children];
+      const from = sections.indexOf(section);
+      const to = Number(position.value);
+      const target = sections[to];
+      if (!target || target===section) return;
+      const focused = document.activeElement===position;
+      sectionsRoot.insertBefore(section,from<to ? target.nextElementSibling : target);
+      updateSectionOrder();
+      refreshEditorMasses();
+      if (focused) position.focus({preventScroll:true});
+      requestAnimationFrame(()=>{
+        const dialog = section.closest('.dialog');
+        if (dialog) dialog.scrollTop += section.getBoundingClientRect().top-dialog.getBoundingClientRect().top-12;
+      });
+    });
+    sectionsRoot.addEventListener('click',event=>{
+      const section = event.target.closest('[data-section]');
+      if (!section) return;
+      if (event.target.closest('[data-add-ingredient]')) {
+        const group = section.querySelector('[data-ingredients]');
+        group.insertAdjacentHTML('beforeend',ingredientMarkup());
+        group.lastElementChild.querySelector('[data-amount]').focus();
+      }
+      if (event.target.closest('[data-remove-ingredient]')) {
+        const group = section.querySelector('[data-ingredients]');
+        const row = event.target.closest('.ingredient-editor');
+        if (group.children.length>1) row.remove();
+        else {
+          row.querySelectorAll('input').forEach(input=>input.value='');
+          row.dataset.ingredientLink = '';
+          const select = row.querySelector('[data-ingredient-link-select]');
+          if (select) {
+            select.value = '';
+            row.querySelector('[data-link-ingredient]').classList.remove('is-linked');
+          }
+        }
+      }
+      if (event.target.closest('[data-remove-section]')) {
+        if (sectionsRoot.children.length>1) section.remove();
+        else toast('Przepis musi mieć przynajmniej jeden etap');
+        updateSectionOrder();
+      }
+    });
     sectionsRoot.addEventListener('click',event=>{
       const button = event.target.closest('[data-insert-dictation]');
       if (!button) return;
@@ -2847,7 +2910,7 @@ Nie twórz plików do pobrania, linków importujących ani przekierowań.`;
       if (event.target.matches('[data-amount],[data-ing-name],[data-baker-continue]')) refreshEditorMasses();
     });
     sectionsRoot.addEventListener('click',event=>{
-      if (event.target.closest('[data-remove-ingredient],[data-remove-section],[data-move-section]')) refreshEditorMasses();
+      if (event.target.closest('[data-remove-ingredient],[data-remove-section]')) refreshEditorMasses();
     });
     const bakerToggle = document.querySelector('[name=bakerPercentages]');
     bakerToggle.addEventListener('change',()=>{
