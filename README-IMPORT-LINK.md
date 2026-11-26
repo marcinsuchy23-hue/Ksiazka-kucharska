@@ -6,7 +6,16 @@ importu. Usługa jest przydatna przy stronach takich jak AniaGotuje. Działa z
 publicznymi stronami HTML. Aplikacja szuka danych przepisu lub wyraźnie
 oznaczonych sekcji składników i przygotowania. Jakość importu zależy od źródła.
 
-## Uruchomienie usługi
+## Uruchomienie na Render
+
+[Wdróż gotową konfigurację na Render](https://render.com/deploy?repo=https://github.com/marcinsuchy23-hue/Ksiazka-kucharska).
+
+Po zalogowaniu zatwierdź wdrożenie. Konfiguracja wybiera darmowy plan,
+Dockerfile i adres Mojej kuchni. Gdy usługa ma status **Live**, skopiuj
+jej adres HTTPS i podaj go w Mojej kuchni w **Ustawieniach importu**.
+Pierwszy import po przerwie może wymagać chwili na uruchomienie usługi.
+
+## Uruchomienie na innym hostingu
 
 1. Wdróż katalog `recipe-import-server` na hostingu, który uruchamia
    kontenery Docker i udostępnia im publiczny adres HTTPS. W panelu hostingu

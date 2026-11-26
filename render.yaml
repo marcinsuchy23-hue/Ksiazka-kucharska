@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: moja-kuchnia-import
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./recipe-import-server/Dockerfile
+    dockerContext: ./recipe-import-server
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ORIGIN
+        value: https://marcinsuchy23-hue.github.io
