@@ -205,7 +205,8 @@
         position = index+step.length;
         return index>=0;
       });
-      if (!mainText || (otherText.length>mainText.length && containsSteps)) return mergePhotos(other,instructions);
+      const richerLayout = other.length>instructions.length && other.some(stage=>stage.photos.length);
+      if (!mainText || (containsSteps && (otherText.length>mainText.length || richerLayout))) return mergePhotos(other,instructions);
       return mergePhotos(instructions,other);
     }
     function mergePhotos(instructions,other) {
@@ -219,7 +220,7 @@
       });
     }
 
-    const ignored = 'nav,aside,footer,[hidden],[aria-hidden="true"],[role="complementary"],.related-recipes,.advertisement';
+    const ignored = 'nav,aside,footer,form,button,script,style,template,figcaption,noscript,svg,[hidden],[aria-hidden="true"],[role="complementary"],.advertisement,[class*="ads-slot"],[class*="related-"],[class*="newsletter"],[class~="comments"],[class~="recipe-tools"]';
     const visible = node=>!node.closest(ignored);
     function recipeHeadings(scope) {
       const headings = [...scope.querySelectorAll('h1')].filter(visible);
@@ -229,8 +230,74 @@
     const stepBlocks = '.recipe-step,.recipeStep,.step-content,.stepContent,.recipe-step-content,.step';
     const methodBlocks = '.recipe-steps,.recipe-instructions,.recipe-preparation,.preparation-instructions';
     const ingredientHeading = /^(?:składniki|ingredients)(?:\s*[:–—-]\s*.*|\s+na\b.*)?$/iu;
-    const methodHeading = /^(?:przygotowanie|sposób przygotowania|jak przygotować|wykonanie|directions|instructions|method|kroki postępowania|krok po kroku)(?:\s*[:–—-]\s*.*)?$|^przepis i sposób przygotowania na\b/iu;
+    const methodHeading = /^(?:przygotowanie|sposób przygotowania|wykonanie|directions|instructions|method|kroki postępowania|krok po kroku)(?:\s*[:–—-]\s*.*)?$|^przepis i sposób przygotowania na\b|^jak (?:to )?(?:zrobić|przygotować|przyrządzić|ugotować|usmażyć|upiec)(?=\s|[?:]|$)/iu;
     const stepHeading = /^(?:krok|etap|step)\s+\d+\b/iu;
+    const endHeading = /^(?:komentarz(?:e|y)?|zobacz (?:także|też|podobne|również)|(?:inne|podobne|polecane|powiązane) przepisy|polecane|newsletter|użyj w przepisie|ten przepis w waszym wykonaniu|wartości odżywcze|ocena(?: przepisu)?|related recipes|leave a comment)\b/iu;
+    const headingSelector = 'h1,h2,h3,h4,h5,h6';
+
+    function orderedInstructions(scope,start,depth=1) {
+      const range = parsed.createRange();
+      if (start?.matches(headingSelector) && stepHeading.test(start.textContent.trim())) range.setStartBefore(start);
+      else if (start) range.setStartAfter(start);
+      else range.setStart(scope,0);
+      range.setEnd(scope,scope.childNodes.length);
+      const instructions = [];
+      let name = '', chunks = [], photos = [], stopped = false;
+      const lines = ()=>chunks.join('').replace(/[^\S\n]+/g,' ').split(/\n+/u)
+        .map(line=>line.trim()).filter(line=>line && !/^\d+$/u.test(line));
+      function flush() {
+        const steps = lines();
+        if (steps.length) instructions.push({name,steps,photos:unique(photos)});
+        else if (photos.length && instructions.length) {
+          const previous = instructions.at(-1);
+          previous.photos = unique([...previous.photos,...photos]);
+        }
+        chunks = [];
+        photos = [];
+        name = '';
+      }
+
+      function walk(node,explicitStep=false) {
+        if (stopped || instructions.length>=100) return;
+        if (node.nodeType===3) {
+          chunks.push(node.textContent);
+          return;
+        }
+        if (node.nodeType!==1 || !visible(node)) return;
+        if (node.matches(headingSelector)) {
+          const label = node.textContent.trim();
+          if (endHeading.test(label)) stopped = true;
+          else if (stepHeading.test(label)) {
+            flush();
+            name = label;
+          } else if (!methodHeading.test(label) && Number(node.tagName[1])<=depth) stopped = true;
+          return;
+        }
+        if (node.matches('img')) {
+          const photo = elementPhoto(node);
+          if (photo) {
+            photos.push(photo);
+            if (!explicitStep && chunks.some(chunk=>chunk.trim())) flush();
+          }
+          return;
+        }
+        if (node.matches('br')) {
+          chunks.push('\n');
+          return;
+        }
+        const step = !explicitStep && node.matches(stepBlocks);
+        const block = node.matches('p,li,div,section,blockquote,pre');
+        if (step && chunks.some(chunk=>chunk.trim())) flush();
+        if (block) chunks.push('\n');
+        for (const child of node.childNodes) walk(child,explicitStep||step);
+        if (block) chunks.push('\n');
+        if (step) flush();
+      }
+
+      for (const node of range.cloneContents().childNodes) walk(node);
+      flush();
+      return instructions;
+    }
 
     function readVisibleRecipe(scope, assumeMethod = false) {
       const title = scope===page.content ? pageTitle : recipeHeadings(scope);
@@ -245,66 +312,61 @@
       if (!titleNode) return null;
       const titleText = normalizedText(titleNode.textContent);
       const matchesMetadata = [jsonRecipe,microdataRecipe].some(recipe=>recipe && normalizedText(recipe.name)===titleText);
-      const ingredients = [], steps = [];
-      let section = assumeMethod ? 'method' : '', level = 1, stepName = '', text = [], photos = [];
-      function flush() {
-        if (text.length) steps.push({name:stepName,text:text.join('\n'),image:photos});
-        stepName = '';
-        text = [];
-        photos = [];
-      }
-      for (const node of scope.querySelectorAll(`h2,h3,h4,h5,h6,li,p,img,${stepBlocks}`)) {
-        if (!visible(node) || node.parentElement?.closest(stepBlocks) && scope.contains(node.parentElement.closest(stepBlocks))) continue;
-        if (/^H[2-6]$/.test(node.tagName)) {
+      const ingredients = [];
+      let collecting = false, level = 1, methodStart = null, ingredientEnd = null, uncertainLayout = false;
+      for (const node of scope.querySelectorAll('h2,h3,h4,h5,h6,li,p')) {
+        if (!visible(node)) continue;
+        if (node.matches(headingSelector)) {
           const depth = Number(node.tagName[1]);
           const label = node.textContent.trim();
           const headingText = normalizedText(label);
-          const matchesRecipeHeading = (matchesMetadata || ingredients.length) &&
-            (headingText===titleText+' przepis' || headingText==='przepis na '+titleText);
+          const matchesTitle = (matchesMetadata || ingredients.length) &&
+            (headingText===titleText+' przepis' || headingText==='przepis na '+titleText ||
+              (collecting && headingText===titleText));
           if (ingredientHeading.test(label)) {
-            if (section==='method' && (steps.length || text.length)) break;
-            section = 'ingredients';
+            collecting = true;
             level = depth;
-          } else if (methodHeading.test(label) || matchesRecipeHeading ||
-              (section==='ingredients' && ingredients.length && /^przepis na\s/iu.test(label))) {
-            section = 'method';
-            level = depth;
-          } else if ((section==='method' || (section==='ingredients' && ingredients.length)) && stepHeading.test(label)) {
-            flush();
-            section = 'method';
-            stepName = label;
-          } else if (!assumeMethod && depth<=level) {
-            if (section==='method' && (steps.length || text.length)) break;
-            section = '';
+          } else if (methodHeading.test(label) || matchesTitle ||
+              (collecting && ingredients.length && (/^przepis na\s/iu.test(label) || stepHeading.test(label)))) {
+            methodStart = node;
+            break;
+          } else if (collecting && ingredients.length && depth<=level) {
+            if (scope!==page.content && !endHeading.test(label)) {
+              methodStart = node;
+              uncertainLayout = true;
+            }
+            break;
           }
           continue;
         }
-        if (!section || node.parentElement?.closest('li')) continue;
-        if (section==='ingredients' && ingredients.length<100 && node.textContent.trim()) {
-          ingredients.push(node.innerHTML);
-        } else if (section==='method' && steps.length<100) {
-          if (node.matches('img')) {
-            photos.push(elementPhoto(node));
-          } else if (node.textContent.trim() && normalizedText(node.textContent)!==titleText) {
-            if (node.matches(stepBlocks)) {
-              const name = text.length ? '' : stepName;
-              flush();
-              steps.push({name,text:node.innerHTML});
-            } else {
-              text.push(node.innerHTML);
-            }
-          }
-        }
+        if (!collecting || node.parentElement?.closest('li') || !node.textContent.trim() || ingredients.length>=100) continue;
+        if (node.matches('p') && ingredientEnd && !node.closest('ul,ol,dl')) break;
+        ingredients.push(node.innerHTML);
+        const list = node.closest('ul,ol,dl');
+        if (list && scope.contains(list)) ingredientEnd = list;
       }
-      flush();
-      return normalize({
+      const boundary = methodStart || ingredientEnd;
+      const startDepth = methodStart ? Number(methodStart.tagName[1]) : level;
+      const methodContainer = methodStart?.parentElement;
+      const scoped = methodContainer && methodContainer!==scope && scope.contains(methodContainer) &&
+        !stepHeading.test(methodStart.textContent.trim()) ? orderedInstructions(methodContainer,methodStart,startDepth) : [];
+      const instructions = scoped.length ? scoped : assumeMethod || boundary ? orderedInstructions(scope,boundary,startDepth) : [];
+      const recipe = normalize({
         name:titleNode.innerHTML,
         description:valueOf(scope.querySelector('[itemprop~="description"]')),
         recipeYield:valueOf(scope.querySelector('[itemprop~="recipeYield"],.field-name-field-ilosc-porcji')),
         recipeIngredient:ingredients,
-        recipeInstructions:steps,
         image:scopePhoto(scope.querySelector('[itemprop~="image"]'))
       });
+      if (recipe) {
+        recipe.instructions = instructions;
+        recipe.uncertainLayout = Boolean(instructions.length && (uncertainLayout || !methodStart&&!assumeMethod));
+        return recipe;
+      }
+      if (instructions.length && (assumeMethod || matchesMetadata)) {
+        return {name:plainText(titleNode.innerHTML),description:'',servings:1,ingredients,instructions,coverPhoto:'',uncertainLayout};
+      }
+      return null;
     }
 
     const recipeScopes = [...page.content.querySelectorAll('[itemscope][itemtype]')]
@@ -323,45 +385,39 @@
       if (!recipe.ingredients.length) recipe.ingredients = alternative.ingredients;
       if (!recipe.description) recipe.description = alternative.description;
       if (!recipe.coverPhoto) recipe.coverPhoto = alternative.coverPhoto;
-      recipe.instructions = supplementInstructions(recipe.instructions,alternative.instructions);
+      const instructions = supplementInstructions(recipe.instructions,alternative.instructions);
+      if (instructions.length===alternative.instructions.length &&
+          instructions.every((stage,index)=>stage.steps===alternative.instructions[index].steps)) {
+        recipe.uncertainLayout = Boolean(alternative.uncertainLayout);
+      }
+      recipe.instructions = instructions;
     }
-    // Some pages keep the actual method in a recipe body, as text between images.
     const recipeTitle = normalizedText(recipe.name);
-    const recipeBody = page.content.querySelector('[itemprop~="recipeInstructions"] [data-read-milestone="body_after_recipe_controls"]');
-    const bodyHeadings = [...(recipeBody?.children||[])].filter(node=>/^H[2-6]$/.test(node.tagName));
-    const methodTitle = bodyHeadings.find(node=>{
-      const label = normalizedText(node.textContent);
-      return label===recipeTitle+' przepis' || label==='przepis na '+recipeTitle;
-    }) || bodyHeadings.find(node=>normalizedText(node.textContent)===recipeTitle);
-    if (methodTitle) {
-      const instructions = [];
-      const fragment = parsed.createElement('template');
-      function finishStage() {
-        const steps = plainText(fragment.innerHTML).split('\n').map(line=>line.trim()).filter(Boolean);
-        const photos = unique(photosFromHtml(fragment.innerHTML));
-        fragment.content.replaceChildren();
-        if (steps.length) instructions.push({name:'',steps,photos});
-        else if (photos.length && instructions.length) {
-          const previous = instructions.at(-1);
-          previous.photos = unique([...previous.photos,...photos]);
-        } else if (photos.length) instructions.push({name:'',steps,photos});
+    const methodScopes = [...page.content.querySelectorAll('[itemprop~="recipeInstructions"]')]
+      .filter(node=>visible(node) && node.children.length && !node.parentElement?.closest('[itemprop~="recipeInstructions"]'))
+      .slice(0,16);
+    for (const scope of methodScopes) {
+      const owner = scope.closest('[itemscope][itemtype]');
+      const ownerNames = owner && hasType(owner.getAttribute('itemtype').split(/\s+/),'Recipe')
+        ? fields(owner,'name').map(item=>normalizedText(plainText(valueOf(item)))).filter(Boolean) : [];
+      if (ownerNames.length && !ownerNames.includes(recipeTitle)) continue;
+      const ingredientsArea = scope.querySelector('[itemprop~="recipeIngredient"],[id*="Ingredients"],[class*="ingredients"]');
+      const headings = [...scope.querySelectorAll(headingSelector)].filter(node=>visible(node) && !endHeading.test(node.textContent.trim()));
+      const afterIngredients = headings.filter(node=>!ingredientsArea || ingredientsArea.compareDocumentPosition(node)&4 && !ingredientsArea.contains(node));
+      const methodTitle = afterIngredients.find(node=>{
+        const label = normalizedText(node.textContent);
+        return methodHeading.test(node.textContent.trim()) || label===recipeTitle+' przepis' || label==='przepis na '+recipeTitle;
+      }) || afterIngredients.find(node=>normalizedText(node.textContent)===recipeTitle);
+      if (ingredientsArea && !methodTitle) continue;
+      const instructions = orderedInstructions(scope,methodTitle,methodTitle ? Number(methodTitle.tagName[1]) : 1);
+      if (!instructions.length) continue;
+      const merged = supplementInstructions(recipe.instructions,instructions);
+      if (methodTitle && ingredientsArea && ownerNames.includes(recipeTitle) && instructions.some(stage=>stage.photos.length)) {
+        recipe.instructions = instructions;
+        recipe.uncertainLayout = false;
+      } else {
+        recipe.instructions = merged;
       }
-
-      function collect(node) {
-        fragment.content.append(node.cloneNode(true));
-        if (node.nodeType===1 && (node.matches('img') || node.querySelector('img'))) finishStage();
-      }
-      for (let node=methodTitle.nextSibling;node;node=node.nextSibling) {
-        if (node.nodeType===1 && /^H[2-6]$/.test(node.tagName) && node.tagName<=methodTitle.tagName) break;
-        collect(node);
-      }
-      let extension = recipeBody.nextElementSibling;
-      if (extension?.matches('[data-read-milestone="recipe_end_ad"]')) extension = extension.nextElementSibling;
-      if (extension?.matches('[data-read-milestone="body_ext"]')) {
-        for (const node of extension.childNodes) collect(node);
-      }
-      finishStage();
-      if (instructions.some(section=>section.steps.length)) recipe.instructions = instructions;
     }
     if (!recipe.description) {
       recipe.description = plainText(page.content.querySelector('meta[property="og:description"]')?.getAttribute('content')) ||

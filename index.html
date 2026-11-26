@@ -203,7 +203,7 @@
   <output aria-live="off"></output><button type="button" class="quiet-button">Zatrzymaj</button>
 </aside>
 <div id="overlay-root"></div><div id="toast-root"></div>
-<script src="./recipe-link-import.js?v=103"></script>
+<script src="./recipe-link-import.js?v=104"></script>
 <script src="./cookbook-storage.js?v=102"></script>
 <script>
 (async()=>{
@@ -1965,12 +1965,14 @@
     return {name,servings:1,sections:[{...stage,name:'Przygotowanie'}]};
   }
 
-  function dictateRecipe(book,category) {
-    showForm('Podyktuj przepis',`<form id="edit-form" class="form">
+  function dictateRecipe(book,category,sourceUrl='') {
+    showForm(sourceUrl?'Wklej tekst przepisu':'Podyktuj przepis',`<form id="edit-form" class="form">
       <div class="field"><label for="dictated-recipe">Tekst przepisu</label>
         <textarea id="dictated-recipe" name="text" rows="7" required
           placeholder="Zupa pomidorowa. Składniki: 500 g pomidorów, 250 ml bulionu. Przygotowanie: Gotuj 20 minut."></textarea></div>
-      <p class="scan-help">Stuknij mikrofon na klawiaturze. Przy kilku etapach powiedz np. „Etap pierwszy, zaczyn. Składniki: … Etap drugi, ciasto. Składniki: … Przygotowanie: …”. Przy jednym etapie wystarczy nazwa przepisu, składniki i przygotowanie.</p>
+      <p class="scan-help">${sourceUrl
+        ? 'Wklej nazwę i treść przepisu. Jeśli tekst nie ma nagłówków, dodaj „Składniki” i „Przygotowanie”.'
+        : 'Stuknij mikrofon na klawiaturze. Przy kilku etapach powiedz np. „Etap pierwszy, zaczyn. Składniki: … Etap drugi, ciasto. Składniki: … Przygotowanie: …”. Przy jednym etapie wystarczy nazwa przepisu, składniki i przygotowanie.'}</p>
       <p class="scan-help" id="dictated-recipe-message" role="status" hidden></p>
       <div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button>
         <button type="submit" class="primary-button">Sprawdź szkic</button></div></form>`,(data,form)=>{
@@ -1981,6 +1983,7 @@
         message.hidden = false;
         return;
       }
+      if (sourceUrl) draft.sourceUrl = sourceUrl;
       recipeForm(book,category,draft,true);
     });
   }
@@ -2172,6 +2175,8 @@
       name:recipe.name.slice(0,90),description:recipe.description.slice(0,280),
       servings:recipe.servings,sections,sourceUrl:source.href,photo:photos.get(recipe.coverPhoto)||'',
       importNotice:[
+        !recipe.ingredients.length?'Nie udało się odczytać składników. Możesz je dopisać w szkicu.':'',
+        recipe.uncertainLayout?'Sprawdź układ etapów i zdjęć w szkicu. Strona nie podaje ich powiązań wprost.':'',
         !recipe.instructions.some(section=>section.steps.length)?'Nie udało się odczytać przygotowania. Możesz je dopisać w szkicu.':'',
         skipped?`Pobrano ${photos.size} z ${found} zdjęć.${errors.length?` Powód pominięcia: ${errors.join(', ')}.`:''}`
           : found===0?'Nie udało się znaleźć zdjęć przepisu na stronie.':''
@@ -2195,6 +2200,7 @@
           <p class="scan-help">Puste pole korzysta z domyślnej usługi Mojej kuchni. Wpisz adres tylko wtedy, gdy chcesz użyć własnej usługi.</p></div>
       </details>
       <p class="scan-help" role="status" id="recipe-import-status" hidden></p>
+      <button id="recipe-import-paste" type="button" class="text-button" hidden>Wklej tekst przepisu</button>
       <div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button>
         <button type="submit" class="primary-button">Pobierz przepis</button></div>
     </form>`,async(data,form)=>{
@@ -2203,12 +2209,14 @@
       const endpoint = recipeWebUrl(endpointValue||DEFAULT_RECIPE_IMPORT_ENDPOINT,{httpsOnly:true});
       const message = form.querySelector('#recipe-import-status');
       const submit = form.querySelector('[type=submit]');
+      const paste = form.querySelector('#recipe-import-paste');
       const status = text=>{message.textContent=text;message.hidden=false};
       if (!source) return status('Podaj pełny adres przepisu zaczynający się od https:// lub http://.');
       if (endpointValue && !endpoint) return status('Podaj prawidłowy adres usługi importu zaczynający się od https://.');
       if (submit.disabled) return;
       source.hash = '';
       endpoint.hash = '';
+      paste.onclick = ()=>dictateRecipe(book,category,source.href);
       try {
         if (endpointValue) localStorage.setItem(RECIPE_IMPORT_ENDPOINT_KEY,endpoint.href);
         else localStorage.removeItem(RECIPE_IMPORT_ENDPOINT_KEY);
@@ -2221,12 +2229,16 @@
       },8000);
       formCleanup = ()=>controller.abort();
       status('Pobieram przepis…');
+      paste.hidden = true;
       submit.disabled = true;
       try {
         const {html,responseUrl} = await fetchRecipePage(endpoint,controller.signal,true);
         if (!form.isConnected) return;
         const recipe = globalThis.recipeLinkImport.parse(html,source.href,responseUrl);
-        if (!recipe) return status('Na tej stronie nie udało się znaleźć składników ani kroków przepisu.');
+        if (!recipe) {
+          paste.hidden = false;
+          return status('Na tej stronie nie udało się znaleźć składników ani kroków przepisu.');
+        }
         clearTimeout(slow);
         if (data.get('photos')==='on') {
           status('Pobieram zdjęcia przepisu…');
@@ -2237,6 +2249,7 @@
         }
       } catch (error) {
         if (!form.isConnected) return;
+        paste.hidden = false;
         status(recipeImportMessage(error,endpoint,controller.signal.aborted));
       } finally {
         clearTimeout(timeout);
