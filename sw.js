@@ -1,4 +1,4 @@
-const CACHE = 'moja-kuchnia-v108';
+const CACHE = 'moja-kuchnia-v109';
 const OCR_CACHE = 'moja-kuchnia-ocr-v1';
 const path = file => new URL(file,self.registration.scope).href;
 const INDEX = path('index.html');
