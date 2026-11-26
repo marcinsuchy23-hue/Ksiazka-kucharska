@@ -166,8 +166,8 @@
     const fields = (scope, property) => [...scope.querySelectorAll(`[itemprop~="${property}"]`)].filter(item =>
       item.parentElement?.closest('[itemscope]') === scope);
     const valueOf = item => item?.getAttribute('content') ?? item?.getAttribute('value') ?? item?.innerHTML;
-    const scopePhoto = item=>elementPhoto(item) || elementPhoto(fields(item,'contentUrl')[0]) ||
-      elementPhoto(fields(item,'url')[0]) || elementPhoto(item.querySelector('img'));
+    const scopePhoto = item=>item && (elementPhoto(item) || elementPhoto(fields(item,'contentUrl')[0]) ||
+      elementPhoto(fields(item,'url')[0]) || elementPhoto(item.querySelector('img')));
     function readInstruction(item) {
       const children = item.hasAttribute('itemscope') ? fields(item,'itemListElement') : [];
       const name = valueOf(fields(item,'name')[0]);
@@ -221,7 +221,11 @@
 
     const ignored = 'nav,aside,footer,[hidden],[aria-hidden="true"],[role="complementary"],.related-recipes,.advertisement';
     const visible = node=>!node.closest(ignored);
-    const pageTitle = [...page.content.querySelectorAll('h1')].filter(visible);
+    function recipeHeadings(scope) {
+      const headings = [...scope.querySelectorAll('h1')].filter(visible);
+      return [...new Map(headings.map(node=>[normalizedText(node.textContent),node])).values()];
+    }
+    const pageTitle = recipeHeadings(page.content);
     const stepBlocks = '.recipe-step,.recipeStep,.step-content,.stepContent,.recipe-step-content,.step';
     const methodBlocks = '.recipe-steps,.recipe-instructions,.recipe-preparation,.preparation-instructions';
     const ingredientHeading = /^(?:składniki|ingredients)(?:\s*[:–—-]\s*.*|\s+na\b.*)?$/iu;
@@ -229,7 +233,7 @@
     const stepHeading = /^(?:krok|etap|step)\s+\d+\b/iu;
 
     function readVisibleRecipe(scope, assumeMethod = false) {
-      const title = scope===page.content ? pageTitle : [...scope.querySelectorAll('h1')].filter(visible);
+      const title = scope===page.content ? pageTitle : recipeHeadings(scope);
       const heading = title.length===1 ? title[0] : !title.length&&pageTitle.length===1 ? pageTitle[0] : null;
       if (!heading) return null;
       const titleText = normalizedText(heading.textContent);
@@ -273,7 +277,7 @@
         } else if (section==='method' && steps.length<100) {
           if (node.matches('img')) {
             photos.push(elementPhoto(node));
-          } else if (node.textContent.trim()) {
+          } else if (node.textContent.trim() && normalizedText(node.textContent)!==titleText) {
             if (node.matches(stepBlocks)) {
               const name = text.length ? '' : stepName;
               flush();
@@ -285,10 +289,19 @@
         }
       }
       flush();
-      return normalize({name:heading.innerHTML,recipeIngredient:ingredients,recipeInstructions:steps});
+      return normalize({
+        name:heading.innerHTML,
+        description:valueOf(scope.querySelector('[itemprop~="description"]')),
+        recipeYield:valueOf(scope.querySelector('[itemprop~="recipeYield"],.field-name-field-ilosc-porcji')),
+        recipeIngredient:ingredients,
+        recipeInstructions:steps,
+        image:scopePhoto(scope.querySelector('[itemprop~="image"]'))
+      });
     }
 
-    const scopes = [...page.content.querySelectorAll('article,main')].slice(0,32);
+    const recipeScopes = [...page.content.querySelectorAll('[itemscope][itemtype]')]
+      .filter(scope=>hasType(scope.getAttribute('itemtype').split(/\s+/),'Recipe'));
+    const scopes = [...recipeScopes,...page.content.querySelectorAll('article,main')].slice(0,32);
     const visibleRecipes = [...scopes,page.content].map(scope=>readVisibleRecipe(scope)).filter(Boolean);
     const explicitMethods = [...page.content.querySelectorAll(methodBlocks)].filter(visible).slice(0,16);
     for (const method of explicitMethods) {
