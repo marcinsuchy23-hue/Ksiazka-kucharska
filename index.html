@@ -2034,6 +2034,7 @@
       });
   }
 
+  const DEFAULT_RECIPE_IMPORT_ENDPOINT = 'https://moja-kuchnia-import.onrender.com/';
   const RECIPE_IMPORT_ENDPOINT_KEY = 'moja-kuchnia-recipe-import-endpoint';
 
   function recipeWebUrl(value,{httpsOnly=false}={}) {
@@ -2125,8 +2126,8 @@
         <summary>Ustawienia importu</summary>
         <div class="field"><label for="recipe-import-endpoint">Adres usługi importu</label>
           <input id="recipe-import-endpoint" name="endpoint" type="url" value="${esc(importer)}"
-            placeholder="https://import.twoja-domena.pl">
-          <p class="scan-help">Jeśli strona blokuje pobieranie z przeglądarki, wklej adres usługi importu. Aplikacja wyśle do niej tylko link do przepisu.</p></div>
+            placeholder="${DEFAULT_RECIPE_IMPORT_ENDPOINT}">
+          <p class="scan-help">Puste pole korzysta z domyślnej usługi Mojej kuchni. Wpisz adres tylko wtedy, gdy chcesz użyć własnej usługi.</p></div>
       </details>
       <p class="scan-help" role="status" id="recipe-import-status" hidden></p>
       <div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button>
@@ -2134,42 +2135,40 @@
     </form>`,async(data,form)=>{
       const source = recipeWebUrl(String(data.get('link')).trim());
       const endpointValue = String(data.get('endpoint')).trim();
-      const endpoint = recipeWebUrl(endpointValue,{httpsOnly:true});
+      const endpoint = recipeWebUrl(endpointValue||DEFAULT_RECIPE_IMPORT_ENDPOINT,{httpsOnly:true});
       const message = form.querySelector('#recipe-import-status');
       const submit = form.querySelector('[type=submit]');
       const status = text=>{message.textContent=text;message.hidden=false};
       if (!source) return status('Podaj pełny adres przepisu zaczynający się od https:// lub http://.');
       if (endpointValue && !endpoint) return status('Podaj prawidłowy adres usługi importu zaczynający się od https://.');
       if (submit.disabled) return;
-      if (source.protocol==='http:' && !endpoint) {
-        form.querySelector('details').open = true;
-        return status('Do pobrania przepisu z adresu http:// potrzebna jest usługa importu.');
-      }
       source.hash = '';
-      if (endpoint) endpoint.hash = '';
+      endpoint.hash = '';
       try {
-        if (endpoint) localStorage.setItem(RECIPE_IMPORT_ENDPOINT_KEY,endpoint.href);
+        if (endpointValue) localStorage.setItem(RECIPE_IMPORT_ENDPOINT_KEY,endpoint.href);
         else localStorage.removeItem(RECIPE_IMPORT_ENDPOINT_KEY);
       } catch {}
-      const request = endpoint || source;
-      if (endpoint) request.searchParams.set('url',source.href);
+      endpoint.searchParams.set('url',source.href);
       const controller = new AbortController();
-      const timeout = setTimeout(()=>controller.abort(),12000);
+      const timeout = setTimeout(()=>controller.abort(),120000);
+      const slow = setTimeout(()=>{
+        if (form.isConnected) status('Nadal pobieram przepis. Po przerwie uruchomienie usługi może zająć około minuty.');
+      },8000);
       formCleanup = ()=>controller.abort();
       status('Pobieram przepis…');
       submit.disabled = true;
       try {
-        const {html,responseUrl} = await fetchRecipePage(request,controller.signal,Boolean(endpoint));
+        const {html,responseUrl} = await fetchRecipePage(endpoint,controller.signal,true);
         if (!form.isConnected) return;
         const recipe = globalThis.recipeLinkImport.parse(html,source.href,responseUrl);
         if (!recipe) return status('Na tej stronie nie udało się znaleźć składników ani kroków przepisu.');
         recipeForm(book,category,importedRecipeDraft(recipe,source),true);
       } catch (error) {
         if (!form.isConnected) return;
-        if (!endpoint && (error instanceof TypeError || error.status===403)) form.querySelector('details').open = true;
         status(recipeImportMessage(error,endpoint,controller.signal.aborted));
       } finally {
         clearTimeout(timeout);
+        clearTimeout(slow);
         submit.disabled = false;
       }
     });
