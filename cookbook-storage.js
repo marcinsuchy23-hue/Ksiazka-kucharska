@@ -51,7 +51,7 @@
 
   function checkedRecipe(value,seen) {
     checkEntity(value,seen);
-    checkTextFields(value,['description','sourceUrl']);
+    checkTextFields(value,['description','sourceUrl','remarks']);
     if (value.prep!==undefined || value.kind==='prep-sv') {
       checkTextFields(record(value.prep),['name','size','duration','notes']);
     }

@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "name": "Grzanki z pastą fasolową",
+  "category": "Przekąski",
+  "servings": 4,
+  "description": "Chrupiące grzanki z pastą z białej fasoli i cytryny.",
+  "ingredients": [
+    { "name": "kromki chleba", "quantity": 4, "unit": "szt." },
+    { "name": "pasta fasolowa", "quantity": null, "unit": "" },
+    { "name": "pieprz do smaku", "quantity": null, "unit": "" }
+  ],
+  "preparation": [
+    "Podpiecz kromki z obu stron na suchej patelni.",
+    "Nałóż pastę fasolową i dopraw pieprzem."
+  ],
+  "components": [
+    {
+      "name": "Pasta fasolowa",
+      "ingredients": [
+        { "name": "biała fasola po odsączeniu", "quantity": 240, "unit": "g" },
+        { "name": "oliwa", "quantity": 15, "unit": "ml" },
+        { "name": "sok z cytryny", "quantity": 10, "unit": "ml" },
+        { "name": "sól", "quantity": null, "unit": "szczypta" }
+      ],
+      "preparation": [
+        "Zblenduj fasolę z oliwą, sokiem z cytryny i solą."
+      ],
+      "notes": "Jeśli pasta jest zbyt gęsta, dodaj trochę wody."
+    }
+  ],
+  "notes": "Najlepsze tuż po przygotowaniu."
+}

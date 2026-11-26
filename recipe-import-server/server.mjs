@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 
 const MAX_URL_LENGTH = 4096;
 const MAX_HTML_BYTES = 2 * 1024 * 1024;
+const MAX_JSON_BYTES = 512 * 1024;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const IMAGE_TYPES = ['image/jpeg','image/png','image/webp','image/gif','image/avif'];
 const MAX_REDIRECTS = 4;
@@ -13,6 +14,7 @@ const TIMEOUT_MS = 10000;
 const MAX_ACTIVE = 4;
 const RECIPES_PER_MINUTE = 30;
 const IMAGES_PER_MINUTE = 120;
+const JSON_PER_MINUTE = 30;
 
 const reservedIPv4 = new BlockList();
 for (const [address,bits] of [
@@ -193,15 +195,36 @@ export async function loadImage(value,signal,dependencies) {
   return {bytes,type};
 }
 
+export async function loadJson(value,signal,dependencies) {
+  const accept = 'application/json,application/ld+json,text/plain;q=0.8,application/octet-stream;q=0.5';
+  const {url,upstream} = await openSource(value,signal,accept,false,dependencies);
+  const type = (upstream.headers['content-type'] || '').split(';',1)[0].trim().toLowerCase();
+  const isJson = /^application\/(?:json|[a-z0-9!#$&^_.+-]+\+json)$/.test(type);
+  if (!isJson && !['text/plain','application/octet-stream'].includes(type)) {
+    upstream.destroy();
+    throw new ImportError(415,'Adres nie prowadzi do pliku JSON.');
+  }
+  const bytes = await readBody(upstream,MAX_JSON_BYTES,'Plik JSON jest za duży.');
+  let json;
+  try {
+    json = new TextDecoder('utf-8',{fatal:true}).decode(bytes);
+    JSON.parse(json);
+  } catch {
+    throw new ImportError(415,'Plik nie zawiera prawidłowych danych JSON w kodowaniu UTF-8.');
+  }
+  return {url,json};
+}
+
 export function createImportServer({
   origin=process.env.APP_ORIGIN || 'https://marcinsuchy23-hue.github.io',
   importPath=process.env.IMPORT_PATH || '/',
   importRecipe=loadRecipe,
-  importImage=loadImage
+  importImage=loadImage,
+  importJson=loadJson
 }={}) {
   let active = 0;
-  const recentRecipes = [];
-  const recentImages = [];
+  const recentRequests = {url:[],image:[],json:[]};
+  const limits = {url:RECIPES_PER_MINUTE,image:IMAGES_PER_MINUTE,json:JSON_PER_MINUTE};
   const server = createServer({headersTimeout:10000,requestTimeout:10000},async(req,res)=>{
     const headers = {
       'Content-Type':'text/plain; charset=utf-8',
@@ -224,15 +247,13 @@ export function createImportServer({
       headers.Allow = 'GET';
       return reply(405,'Dozwolona metoda GET.');
     }
-    const isImage = requestUrl.searchParams.has('image');
-    if (isImage && requestUrl.searchParams.has('url')) {
-      return reply(400,'Podaj jeden adres przepisu lub zdjęcia.');
-    }
-    const recentRequests = isImage ? recentImages : recentRecipes;
-    const limit = isImage ? IMAGES_PER_MINUTE : RECIPES_PER_MINUTE;
+    const selectors = Object.keys(recentRequests).filter(key=>requestUrl.searchParams.has(key));
+    if (selectors.length > 1) return reply(400,'Podaj jeden adres przepisu, pliku JSON lub zdjęcia.');
+    const selector = selectors[0] || 'url';
+    const recent = recentRequests[selector];
     const now = Date.now();
-    while (recentRequests.length && recentRequests[0] <= now-60000) recentRequests.shift();
-    if (active >= MAX_ACTIVE || recentRequests.length >= limit) {
+    while (recent.length && recent[0] <= now-60000) recent.shift();
+    if (active >= MAX_ACTIVE || recent.length >= limits[selector]) {
       headers['Retry-After'] = '60';
       return reply(429,'Za dużo żądań. Spróbuj ponownie za chwilę.');
     }
@@ -241,14 +262,21 @@ export function createImportServer({
     const timeout = setTimeout(()=>controller.abort(),TIMEOUT_MS);
     res.once('close',()=>controller.abort());
     active++;
-    recentRequests.push(now);
+    recent.push(now);
     try {
-      if (isImage) {
-        const {bytes,type} = await importImage(requestUrl.searchParams.get('image'),controller.signal);
+      const source = requestUrl.searchParams.get(selector);
+      if (selector === 'image') {
+        const {bytes,type} = await importImage(source,controller.signal);
         headers['Content-Type'] = type;
         return reply(200,bytes);
       }
-      const {url,html} = await importRecipe(requestUrl.searchParams.get('url'),controller.signal);
+      if (selector === 'json') {
+        const {url,json} = await importJson(source,controller.signal);
+        headers['Content-Type'] = 'application/json; charset=utf-8';
+        headers['X-Recipe-URL'] = url;
+        return reply(200,json);
+      }
+      const {url,html} = await importRecipe(source,controller.signal);
       headers['X-Recipe-URL'] = url;
       return reply(200,html);
     } catch (error) {
