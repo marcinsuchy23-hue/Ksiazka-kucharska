@@ -1,10 +1,10 @@
-const CACHE = 'moja-kuchnia-v98';
+const CACHE = 'moja-kuchnia-v99';
 const OCR_CACHE = 'moja-kuchnia-ocr-v1';
 const path = file => new URL(file,self.registration.scope).href;
 const INDEX = path('index.html');
 const SHELL = new Set([
   INDEX, path('manifest.webmanifest'), path('icon.svg'), path('icon-192.png'),
-  path('icon-512.png'), path('apple-touch-icon.png'), path('recipe-link-import.js?v=98'),
+  path('icon-512.png'), path('apple-touch-icon.png'), path('recipe-link-import.js?v=99'),
   path('cookbook-storage.js')
 ]);
 const OCR = new Set([

@@ -254,7 +254,8 @@
             if (section==='method' && (steps.length || text.length)) break;
             section = 'ingredients';
             level = depth;
-          } else if (methodHeading.test(label) || matchesRecipeHeading) {
+          } else if (methodHeading.test(label) || matchesRecipeHeading ||
+              (section==='ingredients' && ingredients.length && /^przepis na\s/iu.test(label))) {
             section = 'method';
             level = depth;
           } else if (section==='method' && stepHeading.test(label)) {
