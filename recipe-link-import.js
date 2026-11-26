@@ -303,6 +303,28 @@
       if (!recipe.coverPhoto) recipe.coverPhoto = alternative.coverPhoto;
       recipe.instructions = supplementInstructions(recipe.instructions,alternative.instructions);
     }
+    // Some pages keep the actual method in a recipe body, as text between images.
+    const recipeTitle = normalizedText(recipe.name);
+    const recipeBody = page.content.querySelector('[itemprop~="recipeInstructions"] [data-read-milestone="body_after_recipe_controls"]');
+    const methodTitle = [...(recipeBody?.children||[])].find(node=>{
+      if (!/^H[2-6]$/.test(node.tagName)) return false;
+      const label = normalizedText(node.textContent);
+      return label===recipeTitle+' przepis' || label==='przepis na '+recipeTitle;
+    });
+    if (methodTitle) {
+      const method = parsed.createElement('template');
+      for (let node=methodTitle.nextSibling;node;node=node.nextSibling) {
+        if (node.nodeType===1 && /^H[2-6]$/.test(node.tagName) && node.tagName<=methodTitle.tagName) break;
+        method.content.append(node.cloneNode(true));
+      }
+      let extension = recipeBody.nextElementSibling;
+      if (extension?.matches('[data-read-milestone="recipe_end_ad"]')) extension = extension.nextElementSibling;
+      if (extension?.matches('[data-read-milestone="body_ext"]')) {
+        method.content.append(extension.cloneNode(true));
+      }
+      const scoped = normalize({name:recipe.name,recipeInstructions:method.innerHTML});
+      if (scoped?.instructions.length) recipe.instructions = scoped.instructions;
+    }
     if (!recipe.description) {
       recipe.description = plainText(page.content.querySelector('meta[property="og:description"]')?.getAttribute('content')) ||
         plainText(page.content.querySelector('meta[name="description"]')?.getAttribute('content'));
