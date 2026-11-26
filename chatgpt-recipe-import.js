@@ -28,6 +28,10 @@
     return text;
   }
 
+  function readSingleLine(...args) {
+    return readText(...args).replace(/[ \t]*[\r\n]+[ \t]*/g,' ');
+  }
+
   function readList(value,label,max) {
     if (!Array.isArray(value)) throw new Error(`${label} musi być listą.`);
     if (value.length>max) throw new Error(`${label} może mieć najwyżej ${max} pozycji.`);
@@ -38,13 +42,13 @@
     return readList(value,`Lista składników (${label})`,150).map((item,index)=>{
       const position = `Składnik ${index+1} (${label})`;
       checkObject(item,position,ingredientKeys);
-      const name = readText(item.name,`Pole „name” w pozycji ${position}`,200);
-      const unit = readText(item.unit,`Pole „unit” w pozycji ${position}`,30,{allowEmpty:true});
+      const name = readSingleLine(item.name,`Pole „name” w pozycji ${position}`,200);
+      const unit = readSingleLine(item.unit,`Pole „unit” w pozycji ${position}`,30,{allowEmpty:true});
       let quantity = '';
       if (typeof item.quantity==='number' && Number.isFinite(item.quantity) && item.quantity>=0) {
         quantity = item.quantity===0 ? '0' : numberText.format(item.quantity);
       } else if (typeof item.quantity==='string') {
-        quantity = readText(item.quantity,`Pole „quantity” w pozycji ${position}`,40,{allowEmpty:true});
+        quantity = readSingleLine(item.quantity,`Pole „quantity” w pozycji ${position}`,40,{allowEmpty:true});
       } else if (item.quantity!==null) {
         throw new Error(`${position} musi mieć pole „quantity” z liczbą nieujemną, tekstem lub wartością null.`);
       }
@@ -60,7 +64,7 @@
   function readComponent(item,index) {
     const label = `Półprodukt ${index+1}`;
     checkObject(item,label,componentKeys);
-    const name = readText(item.name,`Pole „name” w części ${label}`,60);
+    const name = readSingleLine(item.name,`Pole „name” w części ${label}`,60);
     const ingredients = readIngredients(item.ingredients,label);
     const steps = readPreparation(item.preparation,label);
     const notes = readText(item.notes,`Pole „notes” w części ${label}`,4000,{allowEmpty:true,optional:true});
@@ -84,8 +88,8 @@
     checkObject(recipe,'Przepis',recipeKeys);
     if (recipe.version!==1) throw new Error('W polu „version” wpisz liczbę 1.');
 
-    const name = readText(recipe.name,'Pole „name” z nazwą przepisu',90);
-    const categoryName = readText(recipe.category,'Pole „category” z nazwą działu',70);
+    const name = readSingleLine(recipe.name,'Pole „name” z nazwą przepisu',90);
+    const categoryName = readSingleLine(recipe.category,'Pole „category” z nazwą działu',70);
     if (!Number.isInteger(recipe.servings) || recipe.servings<1 || recipe.servings>100) {
       throw new Error('Pole „servings” musi zawierać liczbę całkowitą od 1 do 100.');
     }

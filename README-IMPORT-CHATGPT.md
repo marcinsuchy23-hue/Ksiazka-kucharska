@@ -2,27 +2,14 @@
 
 [Przykładowy przepis JSON](chatgpt-recipe.example.json) · [Schemat JSON](chatgpt-recipe.schema.json)
 
-1. Dołącz schemat do rozmowy w ChatGPT i skopiuj polecenie poniżej.
-2. W Mojej kuchni otwórz dział i wybierz **Import receptury z ChatGPT**. Użyj opcji **Wklej JSON** dla skopiowanego tekstu albo **Plik JSON** dla pliku na urządzeniu.
-3. Sprawdź składniki, kroki i docelowy dział w szkicu. Zapisz przepis.
+1. W Mojej kuchni otwórz dział, wybierz **Import receptury z ChatGPT**
+   i kliknij **Kopiuj wytyczne do zdjęcia**.
+2. Wklej wytyczne w ChatGPT i dołącz zdjęcie przepisu. Gdy otrzymasz jeden blok
+   JSON, kliknij **Kopiuj** przy bloku.
+3. Wróć do otwartej Mojej kuchni i kliknij **Importuj ze schowka**.
+   Jeśli iOS pokaże systemową opcję **Wklej**, zatwierdź. Jeśli przeglądarka
+   odmówi dostępu, wklej zawartość w wyświetlone pole i kliknij **Sprawdź recepturę**.
+4. Sprawdź szkic, wybierz docelowy dział lub utwórz nowy i zapisz przepis.
 
-## Przepis ze zdjęcia
-
-W oknie **Import receptury z ChatGPT** wybierz **Kopiuj wytyczne do zdjęcia**.
-Wklej polecenie w ChatGPT i dołącz zdjęcie. Odpowiedź ma zawierać jeden link
-do pobrania pliku `receptura.json`. Pobierz plik, wróć do otwartej aplikacji
-i wybierz **Import receptury z ChatGPT → Plik JSON**. Wskaż plik, sprawdź
-szkic i zapisz przepis.
-
-Jeśli masz publiczny adres pliku JSON albo starszy link z danymi receptury,
-skopiuj go i wklej w opcji **Adres URL** w aplikacji.
-
-## Polecenie do skopiowania
-
-> Przygotuj poniższy przepis do importu w aplikacji Moja kuchnia. Zwróć jeden plik `przepis.json` zgodny z dołączonym schematem `chatgpt-recipe.schema.json`. Ustaw `version` na 1. Wpisz nazwę, kategorię, liczbę porcji, składniki i kroki przygotowania. Każdy składnik zapisz w osobnym obiekcie z polami `name`, `quantity` i `unit`. Ilości podaj jako liczby, a ułamki lub zakresy możesz zapisać jako tekst. Gdy brak ilości, wpisz `null`. Gdy brak jednostki, wpisz `""`. Zapisz osobne części receptury, np. sos, w `components`, a uwagi w `notes`. Zachowaj podane ilości, czasy i temperatury. Jeśli nie możesz utworzyć pliku, zwróć samą treść JSON.
->
-> Treść przepisu: [wklej tutaj]
-
-## Import z adresu
-
-W opcji **Adres URL** podaj bezpośredni publiczny adres pliku JSON bez logowania. Jeśli jest to adres HTTP, do pobrania potrzebna jest usługa importu. Przy pobraniu bezpośrednio przez przeglądarkę serwer pod inną domeną musi zezwolić na odczyt z aplikacji w nagłówku CORS. Jeśli go blokuje, aplikacja może pobrać plik przez skonfigurowaną usługę importu. Do importu receptury z rozmowy w ChatGPT użyj tekstu JSON lub pobranego pliku.
+Ta funkcja czyta tekst na urządzeniu i działa też po wcześniejszym
+zainstalowaniu aktualnej wersji aplikacji do pracy offline.

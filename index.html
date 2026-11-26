@@ -205,7 +205,7 @@
 <div id="overlay-root"></div><div id="toast-root"></div>
 <script src="./recipe-link-import.js?v=104"></script>
 <script src="./cookbook-storage.js?v=105"></script>
-<script src="./chatgpt-recipe-import.js?v=108"></script>
+<script src="./chatgpt-recipe-import.js?v=110"></script>
 <script>
 (async()=>{
   const KEY='domowa-kuchnia-v1';
@@ -2260,39 +2260,11 @@
     });
   }
 
-  const chatGPTImportLimit = 512 * 1024;
-
-  async function fetchChatGPTRecipe(source,signal) {
-    if (source.protocol==='https:') {
-      const direct = new AbortController();
-      const cancel = ()=>direct.abort();
-      signal.addEventListener('abort',cancel,{once:true});
-      const timer = setTimeout(cancel,8000);
-      try {
-        if (signal.aborted) throw new DOMException('Import anulowany.','AbortError');
-        return (await fetchRecipePage(source,direct.signal,false,chatGPTImportLimit)).html;
-      } catch (error) {
-        if (signal.aborted || error.status===413) throw error;
-      } finally {
-        clearTimeout(timer);
-        signal.removeEventListener('abort',cancel);
-      }
-    }
-    let configured;
-    try { configured = localStorage.getItem(RECIPE_IMPORT_ENDPOINT_KEY); } catch {}
-    const endpoint = recipeWebUrl(configured||DEFAULT_RECIPE_IMPORT_ENDPOINT,{httpsOnly:true});
-    if (!endpoint) throw new Error('Adres usługi importu jest nieprawidłowy.');
-    endpoint.searchParams.delete('url');
-    endpoint.searchParams.delete('image');
-    endpoint.searchParams.set('json',source.href);
-    return (await fetchRecipePage(endpoint,signal,true,chatGPTImportLimit)).html;
-  }
-
   const chatGPTPhotoPrompt = `Przygotuj recepturę do importu w aplikacji Moja kuchnia na podstawie dołączonych zdjęć.
 
 Jeśli zdjęcia pokazują zapisany przepis, przepisz jego składniki, ilości, jednostki, porcje, kroki, czasy i temperatury. Połącz kolejne zdjęcia w jeden przepis i usuń powtórzenia. Nie zgaduj nieczytelnych ilości ani temperatur. Zapisz w notes, których danych brakuje. Jeśli zdjęcie przedstawia gotowe danie, możesz zaproponować przepis pod warunkiem, że w notes wyraźnie oznaczysz go jako propozycję na podstawie zdjęcia.
 
-Przygotuj dokładnie jeden obiekt w formacie JSON, bez komentarzy i dodatkowych pól. Użyj poniższej struktury i zastąp wartości przykładowe rzeczywistymi danymi. Zapisz wynik w pliku receptura.json w kodowaniu UTF-8.
+Przygotuj dokładnie jeden obiekt w formacie JSON, bez komentarzy i dodatkowych pól. Użyj poniższej struktury i zastąp wartości przykładowe rzeczywistymi danymi.
 
 {
   "version": 1,
@@ -2321,91 +2293,79 @@ Ilość (quantity) to liczba, tekst z ułamkiem lub zakresem, np. "1/2" albo "20
 
 Limity: nazwa przepisu do 90 znaków, nazwa działu do 70, nazwa półproduktu do 60, opis do 280, uwagi i każdy krok do 4000. Porcje muszą być liczbą całkowitą od 1 do 100.
 
-Utwórz plik receptura.json za pomocą dostępnego narzędzia. W odpowiedzi podaj wyłącznie link do pobrania tego pliku. Nie wyświetlaj JSON-u, składników ani kroków w rozmowie i nie twórz linku otwierającego Moją kuchnię. Jeśli nie możesz utworzyć pliku, poinformuj o tym jednym zdaniem bez wypisywania receptury.`;
+W odpowiedzi pokaż wyłącznie gotowy JSON w jednym bloku kodu oznaczonym jako json, tak żebym mógł użyć przycisku Kopiuj. Nie dodawaj opisu poza blokiem, plików ani linków.`;
 
   function importChatGPTRecipe(book,category) {
+    function preview(text,form) {
+      try {
+        const {categoryName,draft} = globalThis.chatGPTRecipeImport.parse(text);
+        draft.chatGPTCategory = categoryName;
+        recipeForm(book,category,draft,true);
+      } catch (error) {
+        setStatus(form,error.message||'Nie udało się odczytać receptury.');
+      }
+    }
+
+    function setStatus(form,text) {
+      const message = form.querySelector('#chatgpt-import-status');
+      message.textContent = text;
+      message.hidden = !text;
+    }
+
     showForm('Import receptury z ChatGPT',`<form id="edit-form" class="form">
-      <div class="field"><label for="chatgpt-import-method">Sposób importu</label>
-        <select name="method" id="chatgpt-import-method">
-          <option value="paste">Wklej JSON</option><option value="file">Plik JSON</option>
-          <option value="url">Adres URL</option>
-        </select>
-      </div>
-      <div class="field" data-chatgpt-method="paste"><label for="chatgpt-import-text">JSON receptury</label>
-        <textarea id="chatgpt-import-text" name="text" rows="8" spellcheck="false" required></textarea>
-      </div>
-      <div class="field" data-chatgpt-method="file" hidden><label for="chatgpt-import-file">Wybierz plik JSON</label>
-        <input id="chatgpt-import-file" name="file" type="file" accept=".json,application/json" disabled>
-      </div>
-      <div class="field" data-chatgpt-method="url" hidden><label for="chatgpt-import-url">Adres receptury lub pliku JSON</label>
-        <input id="chatgpt-import-url" name="url" type="url" placeholder="https://przyklad.pl/receptura.json" disabled>
-        <p class="scan-help">Wklej publiczny adres pliku JSON lub skopiowany link z danymi receptury.</p>
-      </div>
+      <p class="scan-help">Skopiuj JSON receptury w ChatGPT, a następnie zaimportuj go ze schowka.</p>
       <div><button type="button" class="quiet-button" id="copy-chatgpt-photo-prompt">
         <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
           <rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
         </svg>
         Kopiuj wytyczne do zdjęcia
       </button></div>
-      <p class="scan-help"><a href="./chatgpt-recipe.schema.json" download>Pobierz schemat JSON</a> ·
-        <a href="./chatgpt-recipe.example.json" download>Pobierz przykładową recepturę</a></p>
       <p class="scan-help" role="status" id="chatgpt-import-status" hidden></p>
-      <div class="form-actions"><button type="button" class="quiet-button" data-close>Anuluj</button>
-        <button type="submit" class="primary-button">Sprawdź recepturę</button></div>
-    </form>`,async(data,form)=>{
-      const button = form.querySelector('[type=submit]');
-      if (button.disabled) return;
-      const message = form.querySelector('#chatgpt-import-status');
-      const status = text=>{message.textContent=text;message.hidden=!text};
-      const controller = new AbortController();
-      const method = data.get('method');
-      const timer = setTimeout(()=>controller.abort(),120000);
-      formCleanup = ()=>controller.abort();
-      button.disabled = true;
-      status(method==='url'?'Pobieram plik JSON…':'');
-      try {
-        let text, source;
-        if (method==='file') {
-          const file = data.get('file');
-          if (!(file instanceof File) || !file.size) return status('Wybierz plik JSON z recepturą.');
-          if (file.size>chatGPTImportLimit) return status('Plik JSON może mieć maksymalnie 512 KB.');
-          text = await file.text();
-        } else if (method==='url') {
-          source = recipeWebUrl(String(data.get('url')||'').trim());
-          if (!source) return status('Wklej adres receptury lub pliku JSON zaczynający się od https:// lub http://.');
-          if (source.hash.startsWith('#receptura=') &&
-              (source.origin===location.origin ||
-                (source.origin==='https://marcinsuchy23-hue.github.io' && source.pathname==='/Ksiazka-kucharska/'))) {
-            const {categoryName,draft} = globalThis.chatGPTRecipeImport.parseLink(source.hash);
-            draft.chatGPTCategory = categoryName;
-            recipeForm(book,category,draft,true);
-            return;
-          }
-          source.hash = '';
-          try {
-            text = await fetchChatGPTRecipe(source,controller.signal);
-          } catch (error) {
-            if (!form.isConnected) return;
-            if (controller.signal.aborted) return status('Pobieranie trwało zbyt długo. Spróbuj ponownie albo wczytaj plik.');
-            if (error.status===413) return status('Plik JSON może mieć maksymalnie 512 KB.');
-            return status('Nie udało się pobrać pliku JSON. Sprawdź, czy adres jest publiczny i prowadzi bezpośrednio do pliku.');
-          }
-        } else {
-          text = String(data.get('text')||'');
-        }
-        if (!form.isConnected) return;
-        const {categoryName,draft} = globalThis.chatGPTRecipeImport.parse(text);
-        if (source) draft.sourceUrl = source.href;
-        draft.chatGPTCategory = categoryName;
-        recipeForm(book,category,draft,true);
-      } catch (error) {
-        if (form.isConnected) status(error.message||'Nie udało się odczytać receptury.');
-      } finally {
-        clearTimeout(timer);
-        button.disabled = false;
-      }
-    });
+      <div class="field" id="chatgpt-import-manual" hidden>
+        <label for="chatgpt-import-text">Wklej JSON ręcznie</label>
+        <textarea id="chatgpt-import-text" name="text" rows="6" spellcheck="false" required disabled></textarea>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="quiet-button" data-close>Anuluj</button>
+        <button type="button" class="primary-button" id="import-chatgpt-clipboard">
+          <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="8" y="3" width="8" height="4" rx="1"></rect><path d="M16 5h3v16H5V5h3"></path>
+          </svg>
+          Importuj ze schowka
+        </button>
+        <button type="submit" class="primary-button" id="chatgpt-import-review" hidden disabled>Sprawdź recepturę</button>
+      </div>
+    </form>`,(data,form)=>preview(String(data.get('text')||''),form));
+
     const form = document.querySelector('#edit-form');
+    const clipboardButton = form.querySelector('#import-chatgpt-clipboard');
+    clipboardButton.addEventListener('click',async()=>{
+      let text;
+      try {
+        const reading = navigator.clipboard.readText();
+        clipboardButton.disabled = true;
+        setStatus(form,'');
+        text = await reading;
+      } catch {
+        if (!form.isConnected) return;
+        const manual = form.querySelector('#chatgpt-import-manual');
+        manual.hidden = false;
+        manual.querySelector('textarea').disabled = false;
+        const review = form.querySelector('#chatgpt-import-review');
+        review.hidden = false;
+        review.disabled = false;
+        setStatus(form,'Przeglądarka nie udostępniła schowka. Dotknij pola i wybierz „Wklej”.');
+        return;
+      } finally {
+        clipboardButton.disabled = false;
+      }
+      if (!form.isConnected) return;
+      if (!text.trim()) {
+        setStatus(form,'Schowek jest pusty. Skopiuj JSON receptury z ChatGPT i spróbuj ponownie.');
+        return;
+      }
+      preview(text,form);
+    });
     form.querySelector('#copy-chatgpt-photo-prompt').addEventListener('click',async()=>{
       try {
         await navigator.clipboard.writeText(chatGPTPhotoPrompt);
@@ -2413,16 +2373,6 @@ Utwórz plik receptura.json za pomocą dostępnego narzędzia. W odpowiedzi poda
       } catch {
         if (form.isConnected) toast('Nie udało się skopiować wytycznych.');
       }
-    });
-    form.querySelector('#chatgpt-import-method').addEventListener('change',event=>{
-      for (const field of form.querySelectorAll('[data-chatgpt-method]')) {
-        const active = field.dataset.chatgptMethod===event.target.value;
-        field.hidden = !active;
-        const input = field.querySelector('textarea,input');
-        input.disabled = !active;
-        input.required = active;
-      }
-      form.querySelector('#chatgpt-import-status').hidden = true;
     });
   }
 
