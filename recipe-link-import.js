@@ -328,11 +328,11 @@
     // Some pages keep the actual method in a recipe body, as text between images.
     const recipeTitle = normalizedText(recipe.name);
     const recipeBody = page.content.querySelector('[itemprop~="recipeInstructions"] [data-read-milestone="body_after_recipe_controls"]');
-    const methodTitle = [...(recipeBody?.children||[])].find(node=>{
-      if (!/^H[2-6]$/.test(node.tagName)) return false;
+    const bodyHeadings = [...(recipeBody?.children||[])].filter(node=>/^H[2-6]$/.test(node.tagName));
+    const methodTitle = bodyHeadings.find(node=>{
       const label = normalizedText(node.textContent);
       return label===recipeTitle+' przepis' || label==='przepis na '+recipeTitle;
-    });
+    }) || bodyHeadings.find(node=>normalizedText(node.textContent)===recipeTitle);
     if (methodTitle) {
       const instructions = [];
       const fragment = parsed.createElement('template');
