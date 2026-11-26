@@ -203,7 +203,7 @@
   <output aria-live="off"></output><button type="button" class="quiet-button">Zatrzymaj</button>
 </aside>
 <div id="overlay-root"></div><div id="toast-root"></div>
-<script src="./recipe-link-import.js"></script>
+<script src="./recipe-link-import.js?v=97"></script>
 <script src="./cookbook-storage.js"></script>
 <script>
 (()=>{
@@ -2103,6 +2103,7 @@
     const urls = [...new Set([recipe.coverPhoto,...recipe.instructions.flatMap(section=>section.photos||[])]
       .filter(url=>recipeWebUrl(url)))];
     const photos = new Map();
+    const errors = new Set();
     const limit = 8;
     for (let i=0;i<Math.min(limit,urls.length)&&!signal.aborted;i+=2) {
       await Promise.all(urls.slice(i,i+2).map(async url=>{
@@ -2112,21 +2113,40 @@
           request.searchParams.set('image',url);
           const response = await fetch(request,{signal,credentials:'omit',referrerPolicy:'no-referrer'});
           const type = response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase();
-          if (!response.ok || !/^image\/(?:jpeg|png|webp|gif|avif)$/.test(type||'')) return;
-          if (Number(response.headers.get('Content-Length'))>6_000_000) return;
+          if (!response.ok) {
+            errors.add('HTTP '+response.status);
+            return;
+          }
+          if (!/^image\/(?:jpeg|png|webp|gif|avif)$/.test(type||'')) {
+            errors.add('nieobsługiwany format');
+            return;
+          }
+          if (Number(response.headers.get('Content-Length'))>6_000_000) {
+            errors.add('za duży plik');
+            return;
+          }
           const blob = await response.blob();
           if (!signal.aborted && blob.size<=6_000_000) {
-            photos.set(url,await compressRecipePhoto(blob,1000,.72));
+            try {
+              photos.set(url,await compressRecipePhoto(blob,1000,.72));
+            } catch {
+              errors.add('błąd odczytu obrazu');
+            }
+          } else {
+            errors.add(signal.aborted?'przekroczono czas pobierania':'za duży plik');
           }
-        } catch {}
+        } catch {
+          errors.add(signal.aborted?'przekroczono czas pobierania':'błąd połączenia z usługą');
+        }
       }));
     }
-    return {photos,skipped:urls.length-photos.size,found:urls.length};
+    if (urls.length>limit) errors.add('limit 8 zdjęć');
+    return {photos,skipped:urls.length-photos.size,found:urls.length,errors:[...errors]};
   }
 
-  function importedRecipeDraft(recipe,source,{photos=new Map(),skipped=0,found}={}) {
+  function importedRecipeDraft(recipe,source,{photos=new Map(),skipped=0,found,errors=[]}={}) {
     const ingredients = recipe.ingredients.map(line=>
-      parseDictatedIngredients(line,{split:false})[0] || {amount:'',name:line});
+      parseDictatedIngredients(line.replace(/^(\s*\d+)\s*\/{2,}\s*(?=\d)/u,'$1/'),{split:false})[0] || {amount:'',name:line});
     const sections = recipe.instructions.map(({name,steps,photos:images},index)=>({
       name:(name || (recipe.instructions.length===1 ? 'Przygotowanie' : `Etap ${index+1}`)).slice(0,60),
       ingredients:[],
@@ -2140,7 +2160,7 @@
       servings:recipe.servings,sections,sourceUrl:source.href,photo:photos.get(recipe.coverPhoto)||'',
       importNotice:[
         !recipe.instructions.some(section=>section.steps.length)?'Nie udało się odczytać przygotowania. Możesz je dopisać w szkicu.':'',
-        skipped?`Pominięte zdjęcia (liczba: ${skipped}). Możesz dodać je ręcznie do szkicu.`
+        skipped?`Pobrano ${photos.size} z ${found} zdjęć.${errors.length?` Powód pominięcia: ${errors.join(', ')}.`:''}`
           : found===0?'Nie udało się znaleźć zdjęć przepisu na stronie.':''
       ].filter(Boolean).join(' ')
     };
